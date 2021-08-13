@@ -28,6 +28,11 @@ limitations under the License.
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buf_mgr.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buffers.h"
 #include "tensorflow/lite/micro/kernels/kernel_util.h"
+#include "tensorflow/lite/micro/micro_time.h"
+
+extern volatile int32_t tflm_fc_mli_krn_ticks;
+extern volatile int32_t tflm_fc_mli_mov_ticks;
+extern volatile int32_t tflm_fc_no_mli_ticks;
 
 namespace tflite {
 namespace {
@@ -198,6 +203,7 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
                                   const TfLiteEvalTensor* filter,
                                   const TfLiteEvalTensor* bias,
                                   TfLiteEvalTensor* output) {
+  int32_t t0 = 0;
   ops::micro::MliTensorAttachBuffer<int8_t>(input, &data.mli_in);
   ops::micro::MliTensorAttachBuffer<int8_t>(filter, &data.mli_weights);
   ops::micro::MliTensorAttachBuffer<int32_t>(bias, &data.mli_bias);
@@ -284,11 +290,13 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
     w_ptr->el_params.sa.scale.mem.pi16 = NULL;
     b_ptr->el_params.sa.scale.mem.pi16 = NULL;
 #endif
+      t0 = tflite::GetCurrentTimeTicks();
 
 #ifndef MLI_2_0_KRNL_TEST
     mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
 #endif
     mli_mov_tensor_sync(b_slice.Sub(), &copy_config, b_ptr);
+      tflm_fc_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
 
     // Slice the input over the batches (one at a time with the size of a
     // complete input)
@@ -318,30 +326,41 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
       return kTfLiteError;
     }
     mli_permute_cfg permute_cfg = {{1, 0, 2, 3}};
+    t0 = tflite::GetCurrentTimeTicks();
     ops::micro::permute_weights(data.mli_weights.MliTensor(), &permute_cfg,
                                 w_ptr, &out_ptr->data);
+    tflm_fc_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
 #endif
 
     while (!out_slice.Done()) {
       // if same input copy as previous iteration, skip the copy of input
 #ifdef MLI_2_0
       if (in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) {
+        t0 = tflite::GetCurrentTimeTicks();
         mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+        tflm_fc_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
         input_buffer_ptr = in_slice.Sub()->data.mem.pi8;
       }
       mli_fully_connected_cfg cfg;
       cfg.relu.type = MLI_RELU_NONE;
+      t0 = tflite::GetCurrentTimeTicks();
       mli_krn_fully_connected_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg, out_ptr);
+      tflm_fc_mli_krn_ticks += tflite::GetCurrentTimeTicks() - t0;
 #else
       if (in_slice.Sub()->data != input_buffer_ptr) {
+        t0 = tflite::GetCurrentTimeTicks();
         mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+        tflm_fc_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
         input_buffer_ptr = in_slice.Sub()->data;
       }
+      t0 = tflite::GetCurrentTimeTicks();
       mli_krn_fully_connected_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, out_ptr);
+      tflm_fc_mli_krn_ticks += tflite::GetCurrentTimeTicks() - t0;
 #endif
-
+      t0 = tflite::GetCurrentTimeTicks();
       mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
-
+      tflm_fc_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
+      
       in_slice.Next();
       out_slice.Next();
     }
@@ -469,6 +488,10 @@ TfLiteStatus EvalFloat(TfLiteContext* context, TfLiteNode* node,
 
 TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
   TFLITE_DCHECK(node->builtin_data != nullptr);
+  const int32_t t_start = tflite::GetCurrentTimeTicks();
+  const int32_t t_mli_krn_before = tflm_fc_mli_krn_ticks;
+  const int32_t t_mli_mov_before = tflm_fc_mli_mov_ticks;
+  
   const auto* params =
       static_cast<const TfLiteFullyConnectedParams*>(node->builtin_data);
 
@@ -506,6 +529,11 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
                          TfLiteTypeGetName(input->type), input->type);
       return kTfLiteError;
   }
+  const int32_t t_end = tflite::GetCurrentTimeTicks();
+  int32_t no_mli_ticks_current = t_end - t_start;
+  no_mli_ticks_current -= tflm_fc_mli_krn_ticks - t_mli_krn_before;
+  no_mli_ticks_current -= tflm_fc_mli_mov_ticks - t_mli_mov_before;
+  tflm_fc_no_mli_ticks += no_mli_ticks_current;
   return kTfLiteOk;
 }
 

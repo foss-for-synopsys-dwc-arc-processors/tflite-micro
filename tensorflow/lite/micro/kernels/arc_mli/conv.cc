@@ -29,6 +29,12 @@ limitations under the License.
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buf_mgr.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buffers.h"
 #include "tensorflow/lite/micro/kernels/kernel_util.h"
+#include "tensorflow/lite/micro/micro_time.h"
+
+
+extern volatile int32_t tflm_conv2d_mli_krn_ticks;
+extern volatile int32_t tflm_conv2d_mli_mov_ticks;
+extern volatile int32_t tflm_conv2d_no_mli_ticks;
 
 namespace tflite {
 namespace {
@@ -362,6 +368,7 @@ TfLiteStatus EvalMliQuantizedPerChannel(
   // Run Conv MLI kernel
   // MLI optimized version only supports int8_t dataype and dilation factor of 1
   if (data.is_mli_applicable) {
+    int32_t t0 = 0;
     // Copy configuration data from external to local memory
     mli_conv2d_cfg cfg_local = *data.cfg;
 
@@ -464,6 +471,7 @@ TfLiteStatus EvalMliQuantizedPerChannel(
       w_ptr->el_params.sa.scale.mem.pi16 = NULL;
       b_ptr->el_params.sa.scale.mem.pi16 = NULL;
 #endif
+      t0 = tflite::GetCurrentTimeTicks();
 
 #ifndef MLI_2_0_KRNL_TEST
       mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
@@ -504,9 +512,11 @@ TfLiteStatus EvalMliQuantizedPerChannel(
             context, "Slicing is not supported with real-time permutation.");
         return kTfLiteError;
       }
+      t0 = tflite::GetCurrentTimeTicks();
       mli_permute_cfg permute_cfg = {{1, 2, 3, 0}};
       ops::micro::permute_weights(data.mli_weights.MliTensor(), &permute_cfg,
                                   w_ptr, &out_ptr->data);
+      tflm_conv2d_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
 #endif
 
       while (!out_slice.Done()) {
@@ -518,23 +528,43 @@ TfLiteStatus EvalMliQuantizedPerChannel(
 #ifdef MLI_2_0
         if ((in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
+          t0 = tflite::GetCurrentTimeTicks();
           mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+          tflm_conv2d_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
+
           input_buffer_ptr = in_slice.Sub()->data.mem.pi8;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
-        mli_krn_conv2d_hwcn_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
-                                         out_ptr);
+        t0 = tflite::GetCurrentTimeTicks();
+
+        if (w_ptr->shape[0] == 1 && w_ptr->shape[1]) {
+          mli_krn_conv2d_hwcn_sa8_sa8_sa32_k1x1(in_ptr, w_ptr, b_ptr,
+                                                &cfg_local, out_ptr);
+        } else {
+          mli_krn_conv2d_hwcn_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
+                                           out_ptr);
+        }
+        tflm_conv2d_mli_krn_ticks += tflite::GetCurrentTimeTicks() - t0;
 #else
         if ((in_slice.Sub()->data != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
+          
+          t0 = tflite::GetCurrentTimeTicks();
           mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+          tflm_conv2d_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
+          
           input_buffer_ptr = in_slice.Sub()->data;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
+        t0 = tflite::GetCurrentTimeTicks();
         mli_krn_conv2d_nhwc_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
                                          out_ptr);
+        tflm_conv2d_mli_krn_ticks += tflite::GetCurrentTimeTicks() - t0;
 #endif
+        
+        t0 = tflite::GetCurrentTimeTicks();
         mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
+        tflm_conv2d_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
 
         in_slice.Next();
         out_slice.Next();

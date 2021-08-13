@@ -30,6 +30,11 @@ limitations under the License.
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buf_mgr.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buffers.h"
 #include "tensorflow/lite/micro/kernels/kernel_util.h"
+#include "tensorflow/lite/micro/micro_time.h"
+
+extern volatile int32_t tflm_dw_conv2d_mli_krn_ticks;
+extern volatile int32_t tflm_dw_conv2d_mli_mov_ticks;
+extern volatile int32_t tflm_dw_conv2d_no_mli_ticks;
 
 namespace tflite {
 namespace {
@@ -239,7 +244,7 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
     const int channels_num = SizeOfDimension(filter, 0);
     if (in_ch == filters_num && channels_num == 1) {
       data->p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32 =
-          mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32;
+          mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32_k3x3;
     } else {
       data->p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32 =
           mli_krn_group_conv2d_hwcn_sa8_sa8_sa32;
@@ -383,6 +388,7 @@ TfLiteStatus EvalMliQuantizedPerChannel(
   // Run Depthwise Conv MLI kernel
   // MLI optimized version only supports int8_t dataype and dilation factor of 1
   if (data.is_mli_applicable) {
+    int32_t t0 = 0;
     // Copy configuration data from external to local memory
     mli_conv2d_cfg cfg_local = *data.cfg;
 
@@ -492,9 +498,12 @@ TfLiteStatus EvalMliQuantizedPerChannel(
       w_ptr->el_params.sa.scale.mem.pi16 = NULL;
       b_ptr->el_params.sa.scale.mem.pi16 = NULL;
 #endif
+      t0 = tflite::GetCurrentTimeTicks();
       mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
       mli_mov_tensor_sync(b_slice.Sub(), &copy_config, b_ptr);
 
+      tflm_dw_conv2d_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
+      
       /* input tensor is already sliced in the  channel dimension.
       out_ch_slice.Sub() is the tensor for the amount of channels of this
       iteration of the weight slice loop. This tensor needs to be further
@@ -531,10 +540,14 @@ TfLiteStatus EvalMliQuantizedPerChannel(
 #ifdef MLI_2_0
         if ((in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
+          t0 = tflite::GetCurrentTimeTicks();
           mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+          tflm_dw_conv2d_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
+          
           input_buffer_ptr = in_slice.Sub()->data.mem.pi8;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
+        t0 = tflite::GetCurrentTimeTicks();
 
 #ifdef MLI_2_0_KRNL_TEST
         // Checking conditions here to prevent usage non-contiguous buffer
@@ -551,18 +564,25 @@ TfLiteStatus EvalMliQuantizedPerChannel(
 
         data.p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr,
                                                           &cfg_local, out_ptr);
+        tflm_dw_conv2d_mli_krn_ticks += tflite::GetCurrentTimeTicks() - t0;
 #else
         if ((in_slice.Sub()->data != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
+          t0 = tflite::GetCurrentTimeTicks();
           mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+          tflm_dw_conv2d_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
+          
           input_buffer_ptr = in_slice.Sub()->data;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
+        t0 = tflite::GetCurrentTimeTicks();
         mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr,
                                                    &cfg_local, out_ptr);
+        tflm_dw_conv2d_mli_krn_ticks += tflite::GetCurrentTimeTicks() - t0;
 #endif
-
+        t0 = tflite::GetCurrentTimeTicks();
         mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
+        tflm_dw_conv2d_mli_mov_ticks += tflite::GetCurrentTimeTicks() - t0;
 
         in_slice.Next();
         out_slice.Next();
@@ -664,6 +684,10 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
   TFLITE_DCHECK(node->user_data != nullptr);
   TFLITE_DCHECK(node->builtin_data != nullptr);
 
+  const int32_t t_start = tflite::GetCurrentTimeTicks();
+  const int32_t t_mli_krn_before = tflm_dw_conv2d_mli_krn_ticks;
+  const int32_t t_mli_mov_before = tflm_dw_conv2d_mli_mov_ticks;
+  
   auto* params =
       reinterpret_cast<TfLiteDepthwiseConvParams*>(node->builtin_data);
   const OpData& data = *(static_cast<const OpData*>(node->user_data));
@@ -700,6 +724,12 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
                          TfLiteTypeGetName(input->type), input->type);
       return kTfLiteError;
   }
+  const int32_t t_end = tflite::GetCurrentTimeTicks();
+  int32_t no_mli_ticks_current = t_end - t_start;
+  no_mli_ticks_current -= tflm_dw_conv2d_mli_krn_ticks - t_mli_krn_before;
+  no_mli_ticks_current -= tflm_dw_conv2d_mli_mov_ticks - t_mli_mov_before;
+  tflm_dw_conv2d_no_mli_ticks += no_mli_ticks_current;
+  
   return kTfLiteOk;
 }
 
