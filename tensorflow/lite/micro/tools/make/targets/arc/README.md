@@ -151,18 +151,23 @@ make command line. For instance, to build the Person Detect test application,
 use a shell to execute the following command from the root directory of the
 TensorFlow repo:
 
+Recommended to do *clean* before each project or library generation.
+
 ```
-make -f tensorflow/lite/micro/tools/make/Makefile TARGET=arc_emsdp OPTIMIZED_KERNEL_DIR=arc_mli
+make -f tensorflow/lite/micro/tools/make/Makefile clean
+make -f tensorflow/lite/micro/tools/make/Makefile TARGET=arc_emsdp \ 
+TARGET_ARCH=arc \
+OPTIMIZED_KERNEL_DIR=arc_mli \
 generate_person_detection_test_int8_make_project
 ```
 
 The application project will be generated into
 *tensorflow/lite/micro/tools/make/gen/arc_emsdp_arc/prj/person_detection_test_int8/make*
 
-Info on generating and building example applications for EM SDP
+Information on generating and building example applications for EM SDP
 (*tensorflow/lite/micro/examples*) can be found in the appropriate readme file
 placed in the same directory with the examples. In general, it’s the same
-process which described in this Readme.
+process which described in this readme file.
 
 The
 [embARC MLI Library](https://github.com/foss-for-synopsys-dwc-arc-processors/embarc_mli)
@@ -245,6 +250,20 @@ You will see the application output in the same console where you ran it.
 
 You will see the application output in the serial terminal.
 
+### Generate TFLM as static library for ARC EM SDP
+
+Some applications outside the tflite-micro repository will require TFLM as a pre-generated library.
+Next command can be used to generate TFLM library for ARC EM SDP:
+
+```
+make -f tensorflow/lite/micro/tools/make/Makefile clean
+make -f tensorflow/lite/micro/tools/make/Makefile TARGET=arc_emsdp \ 
+TARGET_ARCH=arc \
+OPTIMIZED_KERNEL_DIR=arc_mli \
+microlite
+```
+
+Generated library *libtensorflow-microlite.a* can be found in *tensorflow/lite/micro/tools/make/gen/{target}/lib*.
 ## Using EmbARC MLI Library 2.0 (experimental feature)
 
 This section describes how to build TFLM using [embARC MLI Library 2.0](https://github.com/foss-for-synopsys-dwc-arc-processors/embarc_mli/tree/Release_2.0_EA). 
