@@ -294,6 +294,8 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
     }
     data->cfg->stride_width = params->stride_width;
     data->cfg->stride_height = params->stride_height;
+    data->cfg->dilation_width = 1;
+    data->cfg->dilation_height = 1;
     if (params->padding == kTfLitePaddingValid) {
       data->cfg->padding_left = 0;
       data->cfg->padding_right = 0;
@@ -476,6 +478,7 @@ TfLiteStatus EvalMliQuantizedPerChannel(
         if ((in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
           mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+          mli_mov_tensor_sync(out_slice.Sub(), &copy_config, out_ptr);
           input_buffer_ptr = in_slice.Sub()->data.mem.pi8;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }

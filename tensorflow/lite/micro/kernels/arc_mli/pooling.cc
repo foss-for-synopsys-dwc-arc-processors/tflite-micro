@@ -228,6 +228,7 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
     cfg_local.padding_bottom = in_slice.GetPaddingPost();
 
     mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+    mli_mov_tensor_sync(out_slice.Sub(), &copy_config, out_ptr);
     if (pooling_type == AveragePooling)
       mli_krn_avepool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
     else if (pooling_type == MaxPooling)

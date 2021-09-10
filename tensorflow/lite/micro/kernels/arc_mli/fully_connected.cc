@@ -327,6 +327,7 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
 #ifdef MLI_2_0
       if (in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) {
         mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+        mli_mov_tensor_sync(out_slice.Sub(), &copy_config, out_ptr);
         input_buffer_ptr = in_slice.Sub()->data.mem.pi8;
       }
       mli_fully_connected_cfg cfg;
