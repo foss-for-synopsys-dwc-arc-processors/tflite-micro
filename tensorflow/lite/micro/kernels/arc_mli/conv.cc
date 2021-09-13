@@ -407,6 +407,9 @@ TfLiteStatus EvalMliQuantizedPerChannel(
     ops::micro::TensorSlicer out_ch_slice(data.mli_out.MliTensor(),
                                           out_tensor_ch_dimension,
                                           slice_channels, 0, 0, 0, true);
+    ops::micro::TensorSlicer out_ch_slice_local(&out_local,
+                                                out_tensor_ch_dimension,
+                                                slice_channels, 0, 0, 0, true);
 
 #ifdef MLI_2_0_KRNL_TEST
     mli_tensor* w_ptr = &weights_local;
@@ -446,11 +449,13 @@ TfLiteStatus EvalMliQuantizedPerChannel(
       sliced over the batch and height dimension. */
       ops::micro::TensorSlicer out_slice(out_ch_slice.Sub(), height_dimension,
                                          out_slice_height);
+      ops::micro::TensorSlicer out_slice_local(out_ch_slice_local.Sub(), height_dimension, 
+                                               out_slice_height);
 
       /* setup the pointers to the local or remote tensor to make the code
        * inside the loop easier. */
       mli_tensor* in_ptr = in_is_local ? in_slice.Sub() : &in_local;
-      mli_tensor* out_ptr = out_is_local ? out_slice.Sub() : &out_local;
+      mli_tensor* out_ptr = out_is_local ? out_slice.Sub() : out_slice_local.Sub();
 
 #ifdef MLI_2_0_KRNL_TEST
       /* Permute weights tensor to the HWCN layout */
@@ -478,10 +483,10 @@ TfLiteStatus EvalMliQuantizedPerChannel(
         if ((in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
           mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
-          mli_mov_tensor_sync(out_slice.Sub(), &copy_config, out_ptr);
           input_buffer_ptr = in_slice.Sub()->data.mem.pi8;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
+
         mli_krn_conv2d_hwcn_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
                                          out_ptr);
 #else
