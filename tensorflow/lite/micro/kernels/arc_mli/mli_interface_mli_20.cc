@@ -119,7 +119,7 @@ const uint32_t* MliTensorInterface::Shape(void) const {
 
 void MliTensorInterface::SetScale(float fscale) {
   int exp;
-  float f = frexpf(fscale, &exp);
+  frexpf(fscale, &exp);
   int frac_bits = 15 - exp;
   int16_t iscale = (int16_t)((1ll << frac_bits) * fscale + 0.5f);
   *(this->Scale<int16_t*>()) = (int16_t)iscale;
