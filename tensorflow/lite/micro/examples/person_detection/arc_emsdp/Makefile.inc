@@ -14,12 +14,11 @@ ifeq ($(TARGET), arc_emsdp)
   person_detection_int8_patch.txt
   
   ARC_MLI_BACKEND_PATH = /tensorflow/lite/micro/kernels/arc_mli
-  MODEL_PATH = $(GENERATED_SRCS_DIR)tensorflow/lite/micro/models/
 
 #Apply changes in generated project files.
 #See related comment echoed(@echo <comment>) after each change
 #to get understanding on it's purpose.
-%/person_detection_int8_patch.txt: %/emsdp.lcf %/Makefile %$(ARC_MLI_BACKEND_PATH)/conv.cc %$(ARC_MLI_BACKEND_PATH)/depthwise_conv.cc %$(ARC_MLI_BACKEND_PATH)/pooling.cc $(MODEL_PATH)/person_detect_model_data.cc
+%/person_detection_int8_patch.txt: %/emsdp.lcf %/Makefile %$(ARC_MLI_BACKEND_PATH)/conv.cc %$(ARC_MLI_BACKEND_PATH)/depthwise_conv.cc %$(ARC_MLI_BACKEND_PATH)/pooling.cc
 	@cp tensorflow/lite/micro/examples/person_detection/arc_emsdp/emsdp.lcf $< 
 	@echo emsdp.lcf: Replace with example specific memory map  > $@
 

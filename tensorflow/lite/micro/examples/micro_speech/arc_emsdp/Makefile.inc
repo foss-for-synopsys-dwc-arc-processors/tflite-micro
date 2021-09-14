@@ -17,12 +17,12 @@ ifeq ($(TARGET), arc_emsdp)
   micro_speech_patch.txt
 
   ARC_MLI_BACKEND_PATH = /tensorflow/lite/micro/kernels/arc_mli
-  MODEL_PATH = $(GENERATED_SRCS_DIR)tensorflow/lite/micro/examples/micro_speech/
+  MODEL_PATH = /tensorflow/lite/micro/examples/micro_speech/micro_features
 
 # Apply changes in generated project files. 
 # See related comment echoed (@echo <comment>) after each change 
 # to get understanding on it's purpose.
-%/micro_speech_patch.txt: %/emsdp.lcf %/Makefile %$(ARC_MLI_BACKEND_PATH)/depthwise_conv.cc $(MODEL_PATH)/micro_speech_model_data.cc
+%/micro_speech_patch.txt: %/emsdp.lcf %/Makefile %$(ARC_MLI_BACKEND_PATH)/depthwise_conv.cc %$(MODEL_PATH)/model.cc
 	@cp tensorflow/lite/micro/examples/micro_speech/arc_emsdp/emsdp.lcf $< 
 	@echo emsdp.lcf: Example specific memory map > $@
 	

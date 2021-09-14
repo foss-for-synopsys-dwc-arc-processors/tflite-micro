@@ -12,12 +12,12 @@ ifneq ($(filter $(ARC_TAGS), mli20_experimental), )
   person_detection_TEST_HDRS += \
   person_detection_int8_patch.txt
   
-  MODEL_PATH = $(GENERATED_SRCS_DIR)tensorflow/lite/micro/models/
+  MODEL_PATH = /tensorflow/lite/micro/tools/make/downloads/person_model_int8
 
 # Apply changes in generated project files. 
 # See related comment echoed (@echo <comment>) after each change 
 # to get understanding on it's purpose.
-%/person_detection_int8_patch.txt: $(MODEL_PATH)/person_detect_model_data.cc
+%/person_detection_int8_patch.txt: %$(MODEL_PATH)/person_detect_model_data.cc
 
 	@python tensorflow/lite/micro/tools/make/targets/arc/adaptation_tool.py $<
 	@echo Makefile: Adapted the model to be used with MLI >> $@
