@@ -122,8 +122,6 @@ void MliTensorInterface::SetScale(float fscale) {
   float f = frexpf(fscale, &exp);
   int frac_bits = 15 - exp;
   int16_t iscale = (int16_t)((1ll << frac_bits) * fscale + 0.5f);
-  if ((int16_t)f == iscale)
-    printf ("zaeblo\n");
   *(this->Scale<int16_t*>()) = (int16_t)iscale;
   *(this->ScaleFracBits<int8_t*>()) = frac_bits;
   *this->ScaleCapacity() = 0;

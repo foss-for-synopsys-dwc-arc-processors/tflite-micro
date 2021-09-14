@@ -356,7 +356,6 @@ OPTIMIZED_KERNEL_DIR=arc_mli \
 ARC_TAGS=mli20_experimental \
 BUILD_LIB_DIR=<path_to_buildlib> \
 TCF_FILE=<path_to_tcf_file> \
-LCF_FILE=<path_to_lcf_file> \
 microlite
 ```
 
