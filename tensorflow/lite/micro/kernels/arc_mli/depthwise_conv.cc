@@ -304,6 +304,8 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
                                              /* is_bias_tensor = */ false);
     ops::micro::ConvertToMliTensorPerChannel(bias, &data->mli_bias,
                                              /* is_bias_tensor = */ true);
+    ops::micro::AdjustBiasTensor(&data->mli_bias, &data->mli_in,
+                                 &data->mli_weights);
     ops::micro::ConvertToMliTensor(output, &data->mli_out);
 
 #ifdef MLI_2_0
@@ -493,10 +495,6 @@ TfLiteStatus EvalMliQuantizedPerChannel(
     int padding_bottom = cfg_local.padding_bottom;
 
     while (!w_slice.Done()) {
-#if defined(MLI_2_0) && !defined(MLI_2_0_KRNL_TEST)
-      w_ptr->el_params.sa.scale.mem.pi16 = NULL;
-      b_ptr->el_params.sa.scale.mem.pi16 = NULL;
-#endif
       mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
       mli_mov_tensor_sync(b_slice.Sub(), &copy_config, b_ptr);
 
@@ -528,9 +526,10 @@ TfLiteStatus EvalMliQuantizedPerChannel(
       mli_tensor* out_ptr = out_is_local ? out_slice.Sub() : &out_local;
 
       while (!out_slice.Done()) {
-        if (!out_is_local)
+        if (!out_is_local) {
           ops::micro::PrepareLocalTensor(out_slice.Sub(), &out_local);
-
+          ops::micro::PrepareLocalTensor(in_slice.Sub(), &in_local);
+        }
         TF_LITE_ENSURE(context, !in_slice.Done());
         cfg_local.padding_top = in_slice.GetPaddingPre();
         cfg_local.padding_bottom = in_slice.GetPaddingPost();
