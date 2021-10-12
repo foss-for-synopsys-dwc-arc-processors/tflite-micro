@@ -25,6 +25,7 @@ limitations under the License.
 #include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
 #include "tensorflow/lite/kernels/kernel_util.h"
 #include "tensorflow/lite/kernels/padding.h"
+#include "tensorflow/lite/micro/kernels/arc_mli/mli_function_specializations.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/mli_slicers.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/mli_tf_utils.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buf_mgr.h"
@@ -232,20 +233,6 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
   data->output_zero_point = output->params.zero_point;
 
   if (data->is_mli_applicable) {
-#ifdef MLI_2_0
-    // Choose group convolution function for "channel multiplier" functionality.
-    const int in_ch = SizeOfDimension(input, 3);
-    const int filters_num = SizeOfDimension(filter, 3);
-    const int channels_num = SizeOfDimension(filter, 2);
-    if (in_ch == filters_num && channels_num == 1) {
-      data->p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32 =
-          mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32;
-    } else {
-      data->p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32 =
-          mli_krn_group_conv2d_hwcn_sa8_sa8_sa32;
-    }
-#endif
-
     data->mli_in = ops::micro::MliTensorInterface(static_cast<mli_tensor*>(
         context->AllocatePersistentBuffer(context, sizeof(mli_tensor))));
     data->mli_weights = ops::micro::MliTensorInterface(static_cast<mli_tensor*>(
@@ -307,6 +294,20 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
     ops::micro::AdjustBiasTensor(&data->mli_bias, &data->mli_in,
                                  &data->mli_weights);
     ops::micro::ConvertToMliTensor(output, &data->mli_out);
+
+#ifdef MLI_2_0
+    // Choose group convolution function for "channel multiplier" functionality.
+    const int in_ch = SizeOfDimension(input, 3);
+    const int filters_num = SizeOfDimension(filter, 3);
+    const int channels_num = SizeOfDimension(filter, 2);
+    if (in_ch == filters_num && channels_num == 1) {
+      data->p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32 =
+          mli_krn_depthwise_conv2d(data->mli_weights.MliTensor());
+    } else {
+      data->p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32 =
+          mli_krn_group_conv2d(data->mli_weights.MliTensor());
+    }
+#endif
 
 #ifdef MLI_2_0
     data->cfg->dilation_width = 1;

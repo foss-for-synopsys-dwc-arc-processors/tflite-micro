@@ -20,6 +20,7 @@ limitations under the License.
 #include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
 #include "tensorflow/lite/kernels/kernel_util.h"
 #include "tensorflow/lite/kernels/padding.h"
+#include "tensorflow/lite/micro/kernels/arc_mli/mli_function_specializations.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/mli_slicers.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/mli_tf_utils.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buf_mgr.h"
@@ -32,6 +33,12 @@ namespace {
 
 constexpr int kInputTensor = 0;
 constexpr int kOutputTensor = 0;
+
+#ifdef MLI_2_0
+typedef mli_status (*pooling_func_ptr)(const mli_tensor* /*in*/,
+                                       const mli_pool_cfg* /*cfg*/,
+                                       mli_tensor* /*out*/);
+#endif
 
 struct OpData {
   TfLitePaddingValues padding;
@@ -47,6 +54,12 @@ struct OpData {
   mutable ops::micro::MliTensorInterface mli_in;
   mutable ops::micro::MliTensorInterface mli_out;
   mli_pool_cfg* cfg;
+
+#ifdef MLI_2_0
+  // Pointer to the mli convolution function.
+  pooling_func_ptr p_mli_krn_avepool_hwc_sa8;
+  pooling_func_ptr p_mli_krn_maxpool_hwc_sa8;
+#endif
 };
 
 enum MliPoolingType { AveragePooling = 0, MaxPooling = 1 };
@@ -134,6 +147,11 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
       data->cfg->padding_bottom =
           data->padding.height + data->padding.height_offset;
     }
+#ifdef MLI_2_0
+    // Choose pooling mli specialized functions.
+    data->p_mli_krn_avepool_hwc_sa8 = mli_krn_avepool(data->cfg);
+    data->p_mli_krn_maxpool_hwc_sa8 = mli_krn_maxpool(data->cfg);
+#endif
   }
   return kTfLiteOk;
 }
@@ -233,9 +251,9 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
 
     mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
     if (pooling_type == AveragePooling)
-      mli_krn_avepool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
+      data.p_mli_krn_avepool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
     else if (pooling_type == MaxPooling)
-      mli_krn_maxpool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
+      data.p_mli_krn_maxpool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
     mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
 
     in_slice.Next();
