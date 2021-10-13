@@ -44,14 +44,6 @@ constexpr int kOutputTensor = 0;
 // https://www.tensorflow.org/lite/performance/quantization_spec
 constexpr int kDepthwiseConvQuantizedDimension = 3;
 
-#ifdef MLI_2_0
-typedef mli_status (*depthwise_func_ptr)(const mli_tensor* /*in*/,
-                                         const mli_tensor* /*weights*/,
-                                         const mli_tensor* /*bias*/,
-                                         const mli_conv2d_cfg* /*cfg*/,
-                                         mli_tensor* /*out*/);
-#endif
-
 struct OpData {
   TfLitePaddingValues padding;
 
@@ -87,11 +79,9 @@ struct OpData {
   mutable ops::micro::MliTensorInterface mli_out;
   mli_conv2d_cfg* cfg;
 
-#ifdef MLI_2_0
   // Pointer to the required depthwise function. For “channel multiplier”
   // functionality group convolution is used.
-  depthwise_func_ptr p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32;
-#endif
+  depthwise_func_ptr p_mli_krn_depthwise_conv2d_sa8_sa8_sa32;
 };
 
 bool IsMliApplicable(TfLiteContext* context, const TfLiteTensor* input,
@@ -291,8 +281,10 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
                                              /* is_bias_tensor = */ false);
     ops::micro::ConvertToMliTensorPerChannel(bias, &data->mli_bias,
                                              /* is_bias_tensor = */ true);
+#ifdef MLI_2_0
     ops::micro::AdjustBiasTensor(&data->mli_bias, &data->mli_in,
                                  &data->mli_weights);
+#endif
     ops::micro::ConvertToMliTensor(output, &data->mli_out);
 
 #ifdef MLI_2_0
@@ -301,12 +293,15 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
     const int filters_num = SizeOfDimension(filter, 3);
     const int channels_num = SizeOfDimension(filter, 2);
     if (in_ch == filters_num && channels_num == 1) {
-      data->p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32 =
+      data->p_mli_krn_depthwise_conv2d_sa8_sa8_sa32 =
           mli_krn_depthwise_conv2d(data->mli_weights.MliTensor());
     } else {
-      data->p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32 =
+      data->p_mli_krn_depthwise_conv2d_sa8_sa8_sa32 =
           mli_krn_group_conv2d(data->mli_weights.MliTensor());
     }
+#else
+    data->p_mli_krn_depthwise_conv2d_sa8_sa8_sa32 =
+        mli_krn_depthwise_conv2d(data->mli_weights.MliTensor(), data->cfg);
 #endif
 
 #ifdef MLI_2_0
@@ -557,7 +552,7 @@ TfLiteStatus EvalMliQuantizedPerChannel(
         ops::micro::change_shape(w_ptr, dim_order);
 #endif
 
-        data.p_mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr,
+        data.p_mli_krn_depthwise_conv2d_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr,
                                                           &cfg_local, out_ptr);
 #else
         if ((in_slice.Sub()->data != input_buffer_ptr) ||
@@ -566,7 +561,7 @@ TfLiteStatus EvalMliQuantizedPerChannel(
           input_buffer_ptr = in_slice.Sub()->data;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
-        mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr,
+        data.p_mli_krn_depthwise_conv2d_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr,
                                                    &cfg_local, out_ptr);
 #endif
 

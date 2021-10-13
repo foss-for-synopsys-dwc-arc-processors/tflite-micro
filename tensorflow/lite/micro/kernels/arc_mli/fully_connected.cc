@@ -156,8 +156,10 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
     ops::micro::ConvertToMliTensor(input, &data->mli_in);
     ops::micro::ConvertToMliTensor(filter, &data->mli_weights);
     ops::micro::ConvertToMliTensor(bias, &data->mli_bias);
+#ifdef MLI_2_0
     ops::micro::AdjustBiasTensor(&data->mli_bias, &data->mli_in,
                                  &data->mli_weights);
+#endif
     ops::micro::ConvertToMliTensor(output, &data->mli_out);
 
 #ifdef MLI_2_0

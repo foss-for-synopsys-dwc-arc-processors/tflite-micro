@@ -97,6 +97,7 @@ endif
     MICROLITE_CC_SRCS += tensorflow/lite/micro/kernels/arc_mli/mli_slicers.cc
     MICROLITE_CC_HDRS += tensorflow/lite/micro/kernels/arc_mli/mli_tf_utils.h
     MICROLITE_CC_HDRS += tensorflow/lite/micro/kernels/arc_mli/mli_interface.h
+    MICROLITE_CC_HDRS += tensorflow/lite/micro/kernels/arc_mli/mli_function_specializations.h
 ifneq ($(filter $(ARC_TAGS), mli20_experimental),)
     MICROLITE_CC_SRCS += tensorflow/lite/micro/kernels/arc_mli/mli_interface_mli_20.cc
 else
