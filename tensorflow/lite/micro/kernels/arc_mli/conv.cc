@@ -24,6 +24,7 @@ limitations under the License.
 #include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
 #include "tensorflow/lite/kernels/kernel_util.h"
 #include "tensorflow/lite/kernels/padding.h"
+#include "tensorflow/lite/micro/kernels/arc_mli/mli_function_specializations.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/mli_slicers.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/mli_tf_utils.h"
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buf_mgr.h"
@@ -82,6 +83,9 @@ struct OpData {
   mutable ops::micro::MliTensorInterface mli_bias;
   mutable ops::micro::MliTensorInterface mli_out;
   mli_conv2d_cfg* cfg;
+
+  // Pointer to the mli convolution function.
+  conv_func_ptr p_mli_krn_conv2d_sa8_sa8_sa32;
 };
 
 #if !defined(TF_LITE_STRIP_REFERENCE_IMPL)
@@ -278,9 +282,20 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
                                              /* is_bias_tensor = */ false);
     ops::micro::ConvertToMliTensorPerChannel(bias, &data->mli_bias,
                                              /* is_bias_tensor = */ true);
+#ifdef MLI_2_0
     ops::micro::AdjustBiasTensor(&data->mli_bias, &data->mli_in,
                                  &data->mli_weights);
+#endif
     ops::micro::ConvertToMliTensor(output, &data->mli_out);
+
+#ifdef MLI_2_0
+    // Choose convolution mli specialized function.
+    data->p_mli_krn_conv2d_sa8_sa8_sa32 =
+        mli_krn_conv2d_hwcn(data->mli_weights.MliTensor());
+#else
+    data->p_mli_krn_conv2d_sa8_sa8_sa32 =
+        mli_krn_conv2d_hwcn(data->mli_weights.MliTensor(), data->cfg);
+#endif
 
 #ifdef MLI_2_0
     data->cfg->dilation_width = 1;
@@ -487,8 +502,8 @@ TfLiteStatus EvalMliQuantizedPerChannel(
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
 
-        mli_krn_conv2d_hwcn_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
-                                         out_ptr);
+        data.p_mli_krn_conv2d_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr,
+                                                &cfg_local, out_ptr);
 #else
         if ((in_slice.Sub()->data != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
@@ -496,8 +511,8 @@ TfLiteStatus EvalMliQuantizedPerChannel(
           input_buffer_ptr = in_slice.Sub()->data;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
-        mli_krn_conv2d_nhwc_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
-                                         out_ptr);
+        data.p_mli_krn_conv2d_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr,
+                                                &cfg_local, out_ptr);
 #endif
         mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
 
