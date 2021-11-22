@@ -25,7 +25,7 @@ typedef mli_status (*conv_func_ptr)(const mli_tensor* /*in*/,
                                     mli_tensor* /*out*/);
 
 #ifdef MLI_2_0
-inline conv_func_ptr __attribute__((weak))
+conv_func_ptr __attribute__((weak))
 mli_krn_conv2d_hwcn(const mli_tensor* weights) {
   int filter_w = weights->shape[KRNL_W_DIM_HWCN];
   int filter_h = weights->shape[KRNL_H_DIM_HWCN];
@@ -41,7 +41,7 @@ mli_krn_conv2d_hwcn(const mli_tensor* weights) {
   }
 }
 #else
-inline conv_func_ptr __attribute__((weak))
+conv_func_ptr __attribute__((weak))
 mli_krn_conv2d_hwcn(const mli_tensor* weights, const mli_conv2d_cfg* cfg) {
   return mli_krn_conv2d_nhwc_sa8_sa8_sa32;
 }
@@ -55,7 +55,7 @@ typedef mli_status (*depthwise_func_ptr)(const mli_tensor* /*in*/,
                                          mli_tensor* /*out*/);
 
 #ifdef MLI_2_0
-inline depthwise_func_ptr __attribute__((weak))
+depthwise_func_ptr __attribute__((weak))
 mli_krn_depthwise_conv2d(const mli_tensor* weights) {
   int filter_w = weights->shape[KRNL_DW_W_DIM_HW1N];
   int filter_h = weights->shape[KRNL_DW_H_DIM_HW1N];
@@ -69,14 +69,14 @@ mli_krn_depthwise_conv2d(const mli_tensor* weights) {
   }
 }
 #else
-inline depthwise_func_ptr __attribute__((weak))
+depthwise_func_ptr __attribute__((weak))
 mli_krn_depthwise_conv2d(const mli_tensor* weights, const mli_conv2d_cfg* cfg) {
   return mli_krn_depthwise_conv2d_hwcn_sa8_sa8_sa32;
 }
 #endif
 
 #ifdef MLI_2_0
-inline depthwise_func_ptr __attribute__((weak))
+depthwise_func_ptr __attribute__((weak))
 mli_krn_group_conv2d(const mli_tensor* weights) {
   int filter_w = weights->shape[KRNL_DW_W_DIM_HW1N];
   int filter_h = weights->shape[KRNL_DW_H_DIM_HW1N];
@@ -97,7 +97,7 @@ typedef mli_status (*pooling_func_ptr)(const mli_tensor* /*in*/,
                                        mli_tensor* /*out*/);
 
 #ifdef MLI_2_0
-inline pooling_func_ptr __attribute__((weak))
+pooling_func_ptr __attribute__((weak))
 mli_krn_avepool(const mli_pool_cfg* cfg) {
   int filter_w = cfg->kernel_width;
   int filter_h = cfg->kernel_height;
@@ -111,14 +111,14 @@ mli_krn_avepool(const mli_pool_cfg* cfg) {
   }
 }
 #else
-inline pooling_func_ptr __attribute__((weak))
+pooling_func_ptr __attribute__((weak))
 mli_krn_avepool(const mli_pool_cfg* cfg) {
   return mli_krn_avepool_hwc_sa8;
 }
 #endif
 
 #ifdef MLI_2_0
-inline pooling_func_ptr __attribute__((weak))
+pooling_func_ptr __attribute__((weak))
 mli_krn_maxpool(const mli_pool_cfg* cfg) {
   int filter_w = cfg->kernel_width;
   int filter_h = cfg->kernel_height;
@@ -132,7 +132,7 @@ mli_krn_maxpool(const mli_pool_cfg* cfg) {
   }
 }
 #else
-inline pooling_func_ptr __attribute__((weak))
+pooling_func_ptr __attribute__((weak))
 mli_krn_maxpool(const mli_pool_cfg* cfg) {
   return mli_krn_maxpool_hwc_sa8;
 }

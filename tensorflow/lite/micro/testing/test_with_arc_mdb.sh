@@ -1,4 +1,4 @@
-#!/usr/bin/env bash
+#!/bin/bash -e
 # Copyright 2021 The TensorFlow Authors. All Rights Reserved.
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -14,25 +14,26 @@
 # limitations under the License.
 # ==============================================================================
 #
-# Tests the microcontroller code using ARC platform.
-# These tests require a MetaWare C/C++ Compiler.
+#
+# Parameters:
+#  ${1} - test binary
+#  ${2} - tcf file location.
+#  ${3} - string that is checked for pass/fail.
 
 set -e
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR=${SCRIPT_DIR}/../../../../..
-cd "${ROOT_DIR}"
+TEST_BINARY=${1}
+TCF_FILE=${2}
+PASS_STRING=${3}
 
-source tensorflow/lite/micro/tools/ci_build/helper_functions.sh
+# Running test using MDB. If "non_test_binary" is passed as PASS_STRING, skip check. Otherwise, check if test passed.
+mdb -run -tcf=${TCF_FILE} ${TEST_BINARY} 2>&1 | tee /dev/stderr | grep "${PASS_STRING}" &>/dev/null || [[ "${PASS_STRING}" == "non_test_binary" ]]
 
-readable_run make -f tensorflow/lite/micro/tools/make/Makefile clean
+if [ $? == 0 ]; then
+  exit 0
+else
+  exit 1
+fi
 
-TARGET_ARCH=arc
-TARGET=arc_custom
-OPTIMIZED_KERNEL_DIR=arc_mli
+set +e
 
-readable_run make -f tensorflow/lite/micro/tools/make/Makefile \
-  TARGET=${TARGET} \
-  TARGET_ARCH=${TARGET_ARCH} \
-  OPTIMIZED_KERNEL_DIR=${OPTIMIZED_KERNEL_DIR} \
-  test -j$(nproc)

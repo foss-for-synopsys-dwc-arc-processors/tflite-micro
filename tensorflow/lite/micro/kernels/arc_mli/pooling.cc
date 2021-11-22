@@ -241,10 +241,13 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
     cfg_local.padding_bottom = in_slice.GetPaddingPost();
 
     mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
-    if (pooling_type == AveragePooling)
+    if (pooling_type == AveragePooling) {
+      TFLITE_DCHECK(data.p_mli_krn_avepool_hwc_sa8 != nullptr);
       data.p_mli_krn_avepool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
-    else if (pooling_type == MaxPooling)
+    } else if (pooling_type == MaxPooling) {
+      TFLITE_DCHECK(data.p_mli_krn_maxpool_hwc_sa8 != nullptr);
       data.p_mli_krn_maxpool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
+    }
     mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
 
     in_slice.Next();
