@@ -45,15 +45,12 @@ inline void ConvertToMliTensorData(const TfLiteTensor* tfT,
   const int32_t dims_count = GetTensorShape(tfT).DimensionsCount();
   *mliT->Rank() = is_bias_tensor ? 1 : dims_count;
 
-  if (is_bias_tensor) {
-    mliT->Shape()[0] = GetTensorShape(tfT).Dims(dims_count - 1);
-    mliT->MemStride()[0] = 0;
-  } else {
-    for (int i = 0; i < dims_count; i++) {
+  int mli_tensor_memstride = 1;
+    for (int i = dims_count - 1; i >= 0; --i) {
       mliT->Shape()[i] = GetTensorShape(tfT).Dims(i);
-      mliT->MemStride()[i] = 0;
+      mliT->MemStride()[i] = mli_tensor_memstride;
+      mli_tensor_memstride *= GetTensorShape(tfT).Dims(i);
     }
-  }
 }
 
 inline void ConvertToMliQuantParams(const TfLiteTensor* tfT,
@@ -154,6 +151,23 @@ inline void PrepareLocalTensor(mli_tensor* tensor, mli_tensor* tensor_local) {
   *tensor_local = *tensor;
   tensor_local->data = local_data;
 #endif
+}
+
+inline void AdjustBiasTensor(MliTensorInterface* bias, MliTensorInterface* in,
+                             MliTensorInterface* weights) {
+  int32_t quantized_dimension = *bias->Dim();
+  const int num_channels =
+      quantized_dimension < 0 ? 1 : bias->Shape()[quantized_dimension];
+  for (int i = 0; i < num_channels; i++) {
+    int32_t adjusted_bias_scale =
+        (*in->Scale<int16_t*>()) * (*weights->Scale<int16_t**>())[i];
+    int in_shift = *in->ScaleFracBits<int8_t*>();
+    int w_shift = (*weights->ScaleFracBits<int8_t**>())[i];
+    int b_shift = (*bias->ScaleFracBits<int8_t**>())[i];
+    int bias_shift = in_shift + w_shift - b_shift;
+    (*bias->Scale<int16_t**>())[i] =
+        (int16_t)(adjusted_bias_scale >> bias_shift);
+  }
 }
 
 #ifdef MLI_2_0_KRNL_TEST

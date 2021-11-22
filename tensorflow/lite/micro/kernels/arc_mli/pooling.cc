@@ -224,9 +224,10 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
   mli_tensor* out_ptr = out_is_local ? out_slice.Sub() : &out_local;
 
   while (!out_slice.Done()) {
-    if (!out_is_local)
+    if (!out_is_local) {
       ops::micro::PrepareLocalTensor(out_slice.Sub(), &out_local);
-
+      ops::micro::PrepareLocalTensor(in_slice.Sub(), &in_local);
+    }
     cfg_local.padding_top = in_slice.GetPaddingPre();
     cfg_local.padding_bottom = in_slice.GetPaddingPost();
 

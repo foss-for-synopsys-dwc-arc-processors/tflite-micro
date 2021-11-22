@@ -156,6 +156,8 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
     ops::micro::ConvertToMliTensor(input, &data->mli_in);
     ops::micro::ConvertToMliTensor(filter, &data->mli_weights);
     ops::micro::ConvertToMliTensor(bias, &data->mli_bias);
+    ops::micro::AdjustBiasTensor(&data->mli_bias, &data->mli_in,
+                                 &data->mli_weights);
     ops::micro::ConvertToMliTensor(output, &data->mli_out);
 
 #ifdef MLI_2_0
@@ -323,10 +325,11 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
 #endif
 
     while (!out_slice.Done()) {
-      if (!out_is_local)
+      if (!out_is_local) {
         ops::micro::PrepareLocalTensor(out_slice.Sub(), &out_local);
-
-        // if same input copy as previous iteration, skip the copy of input
+        ops::micro::PrepareLocalTensor(in_slice.Sub(), &in_local);
+      }
+      // if same input copy as previous iteration, skip the copy of input
 #ifdef MLI_2_0
       if (in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) {
         mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
