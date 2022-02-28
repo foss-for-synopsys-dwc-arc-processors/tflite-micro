@@ -93,6 +93,13 @@ void TensorSlicer::ComputeSubTensor(void) {
   actual_padding_post = end - stop_coord;
 
   mli_hlp_create_subtensor(full_tensor_, &cfg_new, &sub_tensor_);
+
+  // update subtensor memory strides up to the new shape.
+  int mli_tensor_memstride = 1;
+  for (int shape_idx = sub_tensor_.rank - 1; shape_idx >= 0; --shape_idx) {
+    sub_tensor_.mem_stride[shape_idx] = mli_tensor_memstride;
+    mli_tensor_memstride *= sub_tensor_.shape[shape_idx];
+  }
 }
 
 void TensorSlicer::Next(void) {

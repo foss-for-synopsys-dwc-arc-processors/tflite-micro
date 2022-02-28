@@ -139,7 +139,7 @@ TfLiteStatus CalculateOpData(TfLiteContext* context, TfLiteNode* node,
   TfLiteTensor* filter =
       micro_context->AllocateTempInputTensor(node, kFilterTensor);
   TfLiteTensor* bias =
-      micro_context->AllocateTempInputTensor(context, node, kBiasTensor);
+      micro_context->AllocateTempInputTensor(node, kBiasTensor);
   TfLiteTensor* output =
       micro_context->AllocateTempOutputTensor(node, kOutputTensor);
 
@@ -171,15 +171,20 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
   TFLITE_DCHECK(node->user_data != nullptr);
   TFLITE_DCHECK(node->builtin_data != nullptr);
 
+  MicroContext* micro_context = GetMicroContext(context);
+
   auto* params =
       reinterpret_cast<TfLiteDepthwiseConvParams*>(node->builtin_data);
   OpData* data = static_cast<OpData*>(node->user_data);
 
-  TfLiteTensor* output = AllocateTempOutputTensor(node, kOutputTensor);
-  const TfLiteTensor* input = AllocateTempInputTensor(node, kInputTensor);
-  const TfLiteTensor* filter = AllocateTempInputTensor(node, kFilterTensor);
+  TfLiteTensor* output =
+      micro_context->AllocateTempOutputTensor(node, kOutputTensor);
+  const TfLiteTensor* input =
+      micro_context->AllocateTempInputTensor(node, kInputTensor);
+  const TfLiteTensor* filter =
+      micro_context->AllocateTempInputTensor(node, kFilterTensor);
   const TfLiteTensor* bias =
-      AllocateTempInputTensor(context, node, kBiasTensor);
+      micro_context->AllocateTempInputTensor(node, kBiasTensor);
 
   const TfLiteType data_type = input->type;
   int width = SizeOfDimension(input, 2);
@@ -503,6 +508,13 @@ TfLiteStatus EvalMliQuantizedPerChannel(
     int padding_bottom = cfg_local.padding_bottom;
 
     while (!w_slice.Done()) {
+      if (!w_is_local) {
+        ops::micro::PrepareLocalTensor(w_slice.Sub(), &weights_local);
+      }
+      if (!b_is_local) {
+        ops::micro::PrepareLocalTensor(b_slice.Sub(), &bias_local);
+      }
+
       mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
       mli_mov_tensor_sync(b_slice.Sub(), &copy_config, b_ptr);
 
@@ -538,7 +550,6 @@ TfLiteStatus EvalMliQuantizedPerChannel(
           ops::micro::PrepareLocalTensor(out_slice.Sub(), &out_local);
           ops::micro::PrepareLocalTensor(in_slice.Sub(), &in_local);
         }
-        TF_LITE_ENSURE(context, !in_slice.Done());
         cfg_local.padding_top = in_slice.GetPaddingPre();
         cfg_local.padding_bottom = in_slice.GetPaddingPost();
 
@@ -586,7 +597,6 @@ TfLiteStatus EvalMliQuantizedPerChannel(
       b_slice.Next();
       out_ch_slice.Next();
       in_ch_slice.Next();
-      TF_LITE_ENSURE(context, in_slice.Done());
     }
   }
   return kTfLiteOk;

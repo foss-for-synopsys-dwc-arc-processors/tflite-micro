@@ -339,6 +339,11 @@ TfLiteStatus EvalMLIAddInt8(TfLiteContext* context, TfLiteNode* node,
   mli_tensor* out_tsr = out_is_local ? out_slice.Sub() : out_local.MliTensor();
 
   while (!out_slice.Done()) {
+    if (!out_is_local) {
+      ops::micro::PrepareLocalTensor(out_slice.Sub(), &out_local_tsr);
+      ops::micro::PrepareLocalTensor(input1_slice.Sub(), &input1_local_tsr);
+      ops::micro::PrepareLocalTensor(input2_slice.Sub(), &input2_local_tsr);
+    }
     mli_mov_tensor_sync(input1_slice.Sub(), &copy_config, input1_tsr);
     mli_mov_tensor_sync(input2_slice.Sub(), &copy_config, input2_tsr);
 
@@ -372,7 +377,8 @@ TfLiteStatus AddPrepare(TfLiteContext* context, TfLiteNode* node) {
   TfLiteTensor* input2 =
       micro_context->AllocateTempInputTensor(node, kInputTensor2);
   TF_LITE_ENSURE(context, input2 != nullptr);
-  TfLiteTensor* output = AllocateTempOutputTensor(node, kOutputTensor);
+  TfLiteTensor* output =
+      micro_context->AllocateTempOutputTensor(node, kOutputTensor);
   TF_LITE_ENSURE(context, output != nullptr);
 
   OpData* data = static_cast<OpData*>(node->user_data);
