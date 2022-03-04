@@ -341,7 +341,11 @@ TfLiteStatus EvalMLIAddInt8(TfLiteContext* context, TfLiteNode* node,
   while (!out_slice.Done()) {
     if (!out_is_local) {
       ops::micro::PrepareLocalTensor(out_slice.Sub(), &out_local_tsr);
+    }
+    if (!input1_is_local) {
       ops::micro::PrepareLocalTensor(input1_slice.Sub(), &input1_local_tsr);
+    }
+    if (!input2_is_local) {
       ops::micro::PrepareLocalTensor(input2_slice.Sub(), &input2_local_tsr);
     }
     mli_mov_tensor_sync(input1_slice.Sub(), &copy_config, input1_tsr);

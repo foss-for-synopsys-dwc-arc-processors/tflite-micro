@@ -179,11 +179,11 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
 
   TfLiteTensor* output =
       micro_context->AllocateTempOutputTensor(node, kOutputTensor);
-  const TfLiteTensor* input =
+  TfLiteTensor* input =
       micro_context->AllocateTempInputTensor(node, kInputTensor);
-  const TfLiteTensor* filter =
+  TfLiteTensor* filter =
       micro_context->AllocateTempInputTensor(node, kFilterTensor);
-  const TfLiteTensor* bias =
+  TfLiteTensor* bias =
       micro_context->AllocateTempInputTensor(node, kBiasTensor);
 
   const TfLiteType data_type = input->type;
@@ -355,6 +355,11 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
           data->padding.height + data->padding.height_offset;
     }
   }
+  micro_context->DeallocateTempTfLiteTensor(input);
+  micro_context->DeallocateTempTfLiteTensor(filter);
+  micro_context->DeallocateTempTfLiteTensor(bias);
+  micro_context->DeallocateTempTfLiteTensor(output);
+
   return kTfLiteOk;
 }
 
