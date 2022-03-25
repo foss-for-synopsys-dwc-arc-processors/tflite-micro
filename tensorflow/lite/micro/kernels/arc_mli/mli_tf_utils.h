@@ -153,12 +153,16 @@ inline void PrepareLocalTensor(mli_tensor* tensor, mli_tensor* tensor_local) {
   mli_data_container local_data = tensor_local->data;
   *tensor_local = *tensor;
   tensor_local->data = local_data;
+  // Update subtensor memory strides up to the new shape.
+  int mli_tensor_memstride = 1;
+  for (int shape_idx = tensor_local->rank - 1; shape_idx >= 0; --shape_idx) {
+    tensor_local->mem_stride[shape_idx] = mli_tensor_memstride;
+    mli_tensor_memstride *= tensor_local->shape[shape_idx];
+  }
 #else
   int8_t* local_data = static_cast<int8_t*>(tensor_local->data);
-  uint32_t local_capacity = tensor_local->capacity;
   *tensor_local = *tensor;
   tensor_local->data = local_data;
-  tensor_local->capacity = local_capacity;
 #endif
 }
 
@@ -176,8 +180,9 @@ inline void AdjustBiasTensor(MliTensorInterface* bias, MliTensorInterface* in,
     int bias_shift = in_shift + w_shift - b_shift;
     adjusted_bias_scale = adjusted_bias_scale >> bias_shift;
     (*bias->Scale<int16_t**>())[i] =
-        (int16_t)(adjusted_bias_scale <= SHRT_MAX ? adjusted_bias_scale
-                                                  : SHRT_MAX);
+        (int16_t)(adjusted_bias_scale <= std::numeric_limits<int16_t>::max()
+                      ? adjusted_bias_scale
+                      : std::numeric_limits<int16_t>::max());
   }
 }
 

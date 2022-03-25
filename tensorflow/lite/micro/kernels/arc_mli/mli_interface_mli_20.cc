@@ -14,7 +14,8 @@ limitations under the License.
 ==============================================================================*/
 
 #include <math.h>
-#include <limits.h>
+
+#include <limits>
 
 #include "mli_interface.h"  // NOLINT
 #include "tensorflow/lite/micro/micro_error_reporter.h"
@@ -139,10 +140,12 @@ void MliTensorInterface::SetScalePerChannel(float* fscale,
   }
 
   for (int i = 0; i < num_channels; i++) {
-    int32_t iscale_acc = (int32_t)((1ll << (*this->ScaleFracBits<int8_t**>())[i]) * fscale[i] + 0.5f);
-    if (iscale_acc > SHRT_MAX) {
+    int32_t iscale_acc =
+        (int32_t)((1ll << (*this->ScaleFracBits<int8_t**>())[i]) * fscale[i] +
+                  0.5f);
+    while (iscale_acc > std::numeric_limits<int16_t>::max()) {
       (*this->ScaleFracBits<int8_t**>())[i] -= 1;
-      iscale_acc = (int32_t)((1ll << (*this->ScaleFracBits<int8_t**>())[i]) * fscale[i] + 0.5f);
+      iscale_acc = (iscale_acc + 1) >> 1;
     }
     int16_t iscale = (int16_t)(iscale_acc);
     (*this->Scale<int16_t**>())[i] = iscale;
