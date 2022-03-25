@@ -130,8 +130,9 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
   TfLiteTensor* filter =
       micro_context->AllocateTempInputTensor(node, kWeightsTensor);
   TfLiteTensor* bias =
-      micro_context->AllocateTempInputTensor(context, node, kBiasTensor);
-  TfLiteTensor* output = AllocateTempOutputTensor(node, kOutputTensor);
+      micro_context->AllocateTempInputTensor(node, kBiasTensor);
+  TfLiteTensor* output =
+      micro_context->AllocateTempOutputTensor(node, kOutputTensor);
 
   TF_LITE_ENSURE_TYPES_EQ(context, input->type, output->type);
   TF_LITE_ENSURE_MSG(context, input->type == filter->type,
@@ -195,7 +196,7 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
     data->mli_in.Shape()[2] = 0;
     data->mli_in.Shape()[3] = 0;
     data->mli_in.MemStride()[0] = data->mli_in.Shape()[1];
-    data->mli_in.MemStride()[1] = 0;
+    data->mli_in.MemStride()[1] = 1;
     *data->mli_in.Rank() = 2;
   }
 
@@ -299,6 +300,13 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
     w_ptr->el_params.sa.scale.mem.pi16 = NULL;
     b_ptr->el_params.sa.scale.mem.pi16 = NULL;
 #endif
+
+    if (!w_is_local) {
+      ops::micro::PrepareLocalTensor(w_slice.Sub(), &weights_local);
+    }
+    if (!b_is_local) {
+      ops::micro::PrepareLocalTensor(b_slice.Sub(), &bias_local);
+    }
 
 #ifndef MLI_2_0_KRNL_TEST
     mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);

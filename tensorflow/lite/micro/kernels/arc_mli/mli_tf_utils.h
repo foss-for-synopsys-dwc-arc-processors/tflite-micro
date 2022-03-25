@@ -16,6 +16,8 @@ limitations under the License.
 #ifndef TENSORFLOW_LITE_MICRO_KERNELS_ARC_MLI_TF_UTILS_H_
 #define TENSORFLOW_LITE_MICRO_KERNELS_ARC_MLI_TF_UTILS_H_
 
+#include <limits.h>
+
 #include "mli_api.h"  // NOLINT
 #include "mli_interface.h"
 #include "tensorflow/lite/kernels/internal/common.h"
@@ -148,9 +150,15 @@ inline void ConvertToMliTensorPerChannel(const TfLiteTensor* tfT,
 
 inline void PrepareLocalTensor(mli_tensor* tensor, mli_tensor* tensor_local) {
 #ifdef MLI_2_0
-  int8_t* local_data = tensor_local->data.mem.pi8;
+  mli_data_container local_data = tensor_local->data;
   *tensor_local = *tensor;
-  tensor_local->data.mem.pi8 = local_data;
+  tensor_local->data = local_data;
+  // Update subtensor memory strides up to the new shape.
+  int mli_tensor_memstride = 1;
+  for (int shape_idx = tensor_local->rank - 1; shape_idx >= 0; --shape_idx) {
+    tensor_local->mem_stride[shape_idx] = mli_tensor_memstride;
+    mli_tensor_memstride *= tensor_local->shape[shape_idx];
+  }
 #else
   int8_t* local_data = static_cast<int8_t*>(tensor_local->data);
   *tensor_local = *tensor;
@@ -170,8 +178,11 @@ inline void AdjustBiasTensor(MliTensorInterface* bias, MliTensorInterface* in,
     int w_shift = (*weights->ScaleFracBits<int8_t**>())[i];
     int b_shift = (*bias->ScaleFracBits<int8_t**>())[i];
     int bias_shift = in_shift + w_shift - b_shift;
+    adjusted_bias_scale = adjusted_bias_scale >> bias_shift;
     (*bias->Scale<int16_t**>())[i] =
-        (int16_t)(adjusted_bias_scale >> bias_shift);
+        (int16_t)(adjusted_bias_scale <= std::numeric_limits<int16_t>::max()
+                      ? adjusted_bias_scale
+                      : std::numeric_limits<int16_t>::max());
   }
 }
 
