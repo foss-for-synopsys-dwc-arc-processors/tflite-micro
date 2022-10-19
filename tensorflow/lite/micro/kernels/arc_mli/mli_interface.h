@@ -16,6 +16,9 @@ limitations under the License.
 #ifndef TENSORFLOW_LITE_MICRO_KERNELS_ARC_MLI_INTERFACE_H_
 #define TENSORFLOW_LITE_MICRO_KERNELS_ARC_MLI_INTERFACE_H_
 
+// #define FX_16_HACK
+// #define MY_DEBUG_PROFILE
+
 #include "mli_api.h"  // NOLINT
 #include "tensorflow/lite/kernels/internal/tensor_ctypes.h"
 namespace tflite {

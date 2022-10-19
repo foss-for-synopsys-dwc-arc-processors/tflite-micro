@@ -34,6 +34,29 @@ namespace {
 constexpr int kInputTensor = 0;
 constexpr int kOutputTensor = 0;
 
+#ifdef FX_16_HACK
+
+static void init_intermediate_tensor_fx16(mli_tensor * tensor, void * buf, int8_t fb){
+	tensor->data.mem.pi8 = (int8_t *) buf;
+    tensor->el_type = MLI_EL_FX_16;
+    tensor->el_params.fx.frac_bits = fb;
+}
+static void set_default_mem_strides_3d(mli_tensor *t){
+	t->mem_stride[2] = 1;
+	t->mem_stride[1] = t->mem_stride[2] * t->shape[2];
+	t->mem_stride[0] = t->mem_stride[1] * t->shape[1];
+}
+
+
+static void set_size_3d(mli_tensor * tensor, uint32_t dim0, uint32_t dim1, uint32_t dim2, uint32_t el_size){
+	tensor->data.capacity = dim0 * dim1 * dim2 * el_size;
+	tensor->rank = 3;
+	tensor->shape[0] = dim0;
+	tensor->shape[1] = dim1;
+	tensor->shape[2] = dim2;
+}
+#endif
+
 struct OpData {
   TfLitePaddingValues padding;
   int32_t activation_min;
@@ -187,6 +210,10 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
                      const OpData& data, const TfLiteEvalTensor* input,
                      TfLiteEvalTensor* output,
                      const MliPoolingType pooling_type) {
+
+#ifdef MY_DEBUG_PROFILE
+  printf("[DEBUG INFO] EvalMli\n");
+#endif
   mli_pool_cfg cfg_local = *data.cfg;
 
   ops::micro::MliTensorAttachBuffer<int8_t>(input, &data.mli_in);
@@ -207,6 +234,16 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
 
   mli_mov_cfg_t copy_config;
   mli_mov_cfg_for_copy(&copy_config);
+
+#ifdef MY_DEBUG_PROFILE
+  printf("[DEBUG INFO] Full shapes: I = [%d %d %d] K = [%d %d] O = [%d %d %d]\n",
+    in_local.shape[1], in_local.shape[2], in_local.shape[3],
+    cfg_local.kernel_height, cfg_local.kernel_width,
+    out_local.shape[1], out_local.shape[2], out_local.shape[3]
+  );
+
+  printf("[DEBUG INFO] before get_arc_scratch_buffer_for_pooling_tensors\n");
+#endif
   TF_LITE_ENSURE_STATUS(get_arc_scratch_buffer_for_pooling_tensors(
       context, &in_local_interface, &out_local_interface));
 
@@ -215,6 +252,9 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
   bool out_is_local =
       out_local_interface.Data<int8_t>() == data.mli_out.Data<int8_t>();
 
+#ifdef MY_DEBUG_PROFILE
+  printf("[DEBUG INFO] before arc_scratch_buffer_calc_slice_size_io\n");
+#endif
   TF_LITE_ENSURE_STATUS(arc_scratch_buffer_calc_slice_size_io(
       &in_local_interface, &out_local_interface, cfg_local.kernel_height,
       cfg_local.stride_height, cfg_local.padding_top, cfg_local.padding_bottom,
@@ -239,6 +279,10 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
   mli_tensor* in_ptr = in_is_local ? in_slice.Sub() : &in_local;
   mli_tensor* out_ptr = out_is_local ? out_slice.Sub() : &out_local;
 
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = 0;
+#endif
   while (!out_slice.Done()) {
     if (!out_is_local) {
       ops::micro::PrepareLocalTensor(out_slice.Sub(), &out_local);
@@ -247,7 +291,58 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
     cfg_local.padding_top = in_slice.GetPaddingPre();
     cfg_local.padding_bottom = in_slice.GetPaddingPost();
 
+#ifdef MY_DEBUG_PROFILE
+    cycles_cnt_0 = _timer_default_read();
+#endif
     mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+    printf("[MOVE] bytes = %d cycles = %d\n",
+      in_ptr->shape[0] * in_ptr->shape[1] * in_ptr->shape[2],
+      _timer_default_read() - cycles_cnt_0
+    );
+#endif
+
+  #ifdef FX_16_HACK  
+          unsigned hi, wi, ci, ho, wo, co;
+          hi = in_ptr->shape[0];
+          wi = in_ptr->shape[1];
+          ci = in_ptr->shape[2];
+          ho = out_ptr->shape[0];
+          wo = out_ptr->shape[1];
+          co = out_ptr->shape[2];
+          assert(ci == co);
+          
+          mli_tensor input_fx16;
+          init_intermediate_tensor_fx16(&input_fx16, (void*)in_ptr->data.mem.pi8, 12);
+          set_size_3d(&input_fx16, hi, wi, ci, sizeof(int16_t));
+          set_default_mem_strides_3d(&input_fx16);
+
+          mli_tensor out_fx16;
+          init_intermediate_tensor_fx16(&out_fx16, (void*)out_ptr->data.mem.pi8, 12);
+          set_size_3d(&out_fx16, ho, wo, co, sizeof(int16_t));
+          set_default_mem_strides_3d(&out_fx16);
+
+#ifdef MY_DEBUG_PROFILE
+          cycles_cnt_0 = _timer_default_read();
+#endif
+          if (pooling_type == AveragePooling) {
+            mli_krn_avepool_hwc_fx16(&input_fx16, &cfg_local, &out_fx16);
+          } else if (pooling_type == MaxPooling) {
+            mli_krn_maxpool_hwc_fx16(&input_fx16, &cfg_local, &out_fx16);
+          }
+
+#ifdef MY_DEBUG_PROFILE
+          printf("[POOL fx16] I = [%d %d %d] O = [%d %d %d] cycles = %d\n",
+            input_fx16.shape[0], input_fx16.shape[1], input_fx16.shape[2],
+            out_fx16.shape[0], out_fx16.shape[1], out_fx16.shape[2], _timer_default_read() - cycles_cnt_0
+          );
+#endif
+    #else
+
+#ifdef MY_DEBUG_PROFILE
+    cycles_cnt_0 = _timer_default_read();
+#endif
     if (pooling_type == AveragePooling) {
       TFLITE_DCHECK(data.p_mli_krn_avepool_hwc_sa8 != nullptr);
       data.p_mli_krn_avepool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
@@ -255,11 +350,33 @@ TfLiteStatus EvalMli(TfLiteContext* context, const TfLitePoolParams* params,
       TFLITE_DCHECK(data.p_mli_krn_maxpool_hwc_sa8 != nullptr);
       data.p_mli_krn_maxpool_hwc_sa8(in_ptr, &cfg_local, out_ptr);
     }
+
+#ifdef MY_DEBUG_PROFILE
+    printf("[POOL sa8] I = [%d %d %d] O = [%d %d %d] cycles = %d\n",
+      in_ptr->shape[0], in_ptr->shape[1], in_ptr->shape[2],
+      out_ptr->shape[0], out_ptr->shape[1], out_ptr->shape[2], _timer_default_read() - cycles_cnt_0
+    );
+#endif
+    #endif
+
+#ifdef MY_DEBUG_PROFILE
+    cycles_cnt_0 = _timer_default_read();
+#endif
     mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
 
+#ifdef MY_DEBUG_PROFILE
+    printf("[MOVE] bytes = %d cycles = %d\n",
+      out_ptr->shape[0] * out_ptr->shape[1] * out_ptr->shape[2],
+      _timer_default_read() - cycles_cnt_0
+    );
+#endif
     in_slice.Next();
     out_slice.Next();
   }
+#ifdef MY_DEBUG_PROFILE
+  printf("--------------------------------------\n");
+#endif
+
   return kTfLiteOk;
 }
 
@@ -267,6 +384,10 @@ void AverageEvalQuantized(TfLiteContext* context, const TfLiteNode* node,
                           const TfLitePoolParams* params, const OpData& data,
                           const TfLiteEvalTensor* input,
                           TfLiteEvalTensor* output) {
+#ifdef MY_DEBUG_PROFILE
+  printf("[DEBUG INFO] ref quantized average pooling\n");
+#endif
+
 #if !defined(TF_LITE_STRIP_REFERENCE_IMPL)
   TFLITE_DCHECK(input->type == kTfLiteInt8);
 
@@ -320,6 +441,9 @@ void MaxEvalFloat(TfLiteContext* context, TfLiteNode* node,
 void MaxEvalQuantized(TfLiteContext* context, TfLiteNode* node,
                       TfLitePoolParams* params, const OpData& data,
                       const TfLiteEvalTensor* input, TfLiteEvalTensor* output) {
+#ifdef MY_DEBUG_PROFILE
+  printf("[DEBUG INFO] ref quantized max pooling\n");
+#endif
 #if !defined(TF_LITE_STRIP_REFERENCE_IMPL)
   TFLITE_DCHECK(input->type == kTfLiteInt8);
   tflite::PoolParams op_params;

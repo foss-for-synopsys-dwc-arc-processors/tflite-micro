@@ -152,12 +152,15 @@ TfLiteStatus MicroGraph::InvokeSubgraph(int subgraph_idx) {
     return kTfLiteError;
   }
   uint32_t operators_size = NumSubgraphOperators(model_, subgraph_idx);
+  printf("[DEBUG INFO] num operators: %d\n", operators_size);
   for (size_t i = 0; i < operators_size; ++i) {
     TfLiteNode* node =
         &(subgraph_allocations_[subgraph_idx].node_and_registrations[i].node);
     const TfLiteRegistration* registration = subgraph_allocations_[subgraph_idx]
                                                  .node_and_registrations[i]
                                                  .registration;
+
+    printf("[DEBUG INFO] %s\n", OpNameFromRegistration(registration));
 
 // This ifdef is needed (even though ScopedMicroProfiler itself is a no-op with
 // -DTF_LITE_STRIP_ERROR_STRINGS) because the function OpNameFromRegistration is

@@ -27,6 +27,8 @@ limitations under the License.
 #include "tensorflow/lite/micro/kernels/logistic.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 
+#include <arc/arc_timer.h>
+
 namespace tflite {
 namespace {
 
@@ -44,6 +46,10 @@ TfLiteStatus LogisticEval(TfLiteContext* context, TfLiteNode* node) {
   TFLITE_DCHECK(node->user_data != nullptr);
   OpDataLogistic* data = static_cast<OpDataLogistic*>(node->user_data);
 
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
   if (input->type == kTfLiteFloat32) {
     switch (output->type) {
       case kTfLiteFloat32: {
@@ -51,6 +57,11 @@ TfLiteStatus LogisticEval(TfLiteContext* context, TfLiteNode* node) {
                                 tflite::micro::GetTensorData<float>(input),
                                 tflite::micro::GetTensorShape(output),
                                 tflite::micro::GetTensorData<float>(output));
+#ifdef MY_DEBUG_PROFILE
+        unsigned cycles_cnt_1 = _timer_default_read();
+        printf("[TFLM SIGMOID] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+        printf("--------------------------------------\n");
+ #endif
         return kTfLiteOk;
       }
       default:
@@ -67,6 +78,11 @@ TfLiteStatus LogisticEval(TfLiteContext* context, TfLiteNode* node) {
             NumElements(input->dims),
             tflite::micro::GetTensorData<int16_t>(input),
             tflite::micro::GetTensorData<int16_t>(output));
+#ifdef MY_DEBUG_PROFILE
+        unsigned cycles_cnt_1 = _timer_default_read();
+        printf("[TFLM SIGMOID] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+        printf("--------------------------------------\n");
+#endif
         return kTfLiteOk;
       }
       default:
@@ -84,6 +100,11 @@ TfLiteStatus LogisticEval(TfLiteContext* context, TfLiteNode* node) {
             NumElements(input->dims),
             tflite::micro::GetTensorData<int8_t>(input),
             tflite::micro::GetTensorData<int8_t>(output));
+#ifdef MY_DEBUG_PROFILE
+        unsigned cycles_cnt_1 = _timer_default_read();
+        printf("[TFLM SIGMOID] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+        printf("--------------------------------------\n");
+#endif
         return kTfLiteOk;
       }
       default:
@@ -100,6 +121,7 @@ TfLiteStatus LogisticEval(TfLiteContext* context, TfLiteNode* node) {
                 TfLiteTypeGetName(output->type));
     return kTfLiteError;
   }
+
   return kTfLiteOk;
 }
 

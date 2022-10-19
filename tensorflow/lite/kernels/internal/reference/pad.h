@@ -20,6 +20,8 @@ limitations under the License.
 
 #include "tensorflow/lite/kernels/internal/types.h"
 
+#include <arc/arc_timer.h>
+
 namespace tflite {
 
 namespace reference_ops {
@@ -45,6 +47,11 @@ inline void PadImpl(const tflite::PadParams& op_params,
       RuntimeShape::ExtendedShape(PadKernelMaxDimensionCount(), output_shape);
   TFLITE_DCHECK_LE(op_params.left_padding_count, PadKernelMaxDimensionCount());
   TFLITE_DCHECK_LE(op_params.right_padding_count, PadKernelMaxDimensionCount());
+
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
 
   // Runtime calls are currently fixed at 5 dimensions. Copy inputs so we can
   // pad them to 5 dims (yes, we are "padding the padding").
@@ -112,6 +119,11 @@ inline void PadImpl(const tflite::PadParams& op_params,
       }
     }
   }
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM PAD] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
 }
 
 template <typename T, typename P>

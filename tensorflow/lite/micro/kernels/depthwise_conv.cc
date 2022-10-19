@@ -53,6 +53,11 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
           ? tflite::micro::GetEvalInput(context, node, kDepthwiseConvBiasTensor)
           : nullptr;
 
+ #ifdef MY_DEBUG_PROFILE   
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = 0;
+#endif
+
   switch (input->type) {  // Already know in/out types are same.
     case kTfLiteFloat32: {
       tflite::reference_ops::DepthwiseConv(
@@ -86,6 +91,12 @@ TfLiteStatus Eval(TfLiteContext* context, TfLiteNode* node) {
                          TfLiteTypeGetName(input->type), input->type);
       return kTfLiteError;
   }
+
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM DCONV] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
   return kTfLiteOk;
 }
 

@@ -16,6 +16,7 @@ limitations under the License.
 #include "tensorflow/lite/micro/kernels/arc_mli/scratch_buffers.h"
 
 #include <limits.h>
+#include <stdio.h>
 
 namespace tflite {
 namespace ops {
@@ -166,6 +167,8 @@ void get_arc_scratch_buffer_two_max_sizes(int* size1, int* size2) {
   *size2 = secondavail;
 }
 
+static bool scratch_dumped = false;
+
 void init_arc_scratch_buffers(void) {
 #ifdef __Xxy
   scratch_mem[0] = scratch_mem_x;
@@ -174,6 +177,10 @@ void init_arc_scratch_buffers(void) {
   scratch_sizes[0] = SCRATCH_MEM_X_SIZE;
   scratch_sizes[1] = SCRATCH_MEM_Y_SIZE;
   scratch_sizes[2] = SCRATCH_MEM_Z_SIZE;
+  if (!scratch_dumped) {
+    printf("SCRATCH X = %d Y = %d Z = %d\n", SCRATCH_MEM_X_SIZE, SCRATCH_MEM_Y_SIZE, SCRATCH_MEM_Z_SIZE );
+    scratch_dumped = true;
+  }
 #elif defined(__Xvdsp)
   scratch_mem[0] = scratch_mem_vec_1;
   scratch_mem[1] = scratch_mem_vec_2;
@@ -181,9 +188,17 @@ void init_arc_scratch_buffers(void) {
   scratch_sizes[0] = SCRATCH_MEM_VEC_SIZE / 4;
   scratch_sizes[1] = SCRATCH_MEM_VEC_SIZE / 4;
   scratch_sizes[2] = SCRATCH_MEM_VEC_SIZE / 2;
+  if (!scratch_dumped) {
+    printf("SCRATCH V = %d; 1 = %d, 2 = %d, 3 = %d\n", SCRATCH_MEM_VEC_SIZE, SCRATCH_MEM_VEC_SIZE / 4, SCRATCH_MEM_VEC_SIZE / 4, SCRATCH_MEM_VEC_SIZE / 2 );
+    scratch_dumped = true;
+  }
 #else
   scratch_mem[0] = scratch_mem_stack;
   scratch_sizes[0] = SCRATCH_MEM_SIZE;
+  if (!scratch_dumped) {
+    printf("SCRATCH = %d\n", SCRATCH_MEM_SIZE);
+    scratch_dumped = true;
+  }
 #endif
 }
 

@@ -26,6 +26,8 @@ limitations under the License.
 #include "tensorflow/lite/micro/kernels/kernel_util.h"
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 
+#include <arc/arc_timer.h>
+
 namespace tflite {
 
 void* DequantizeInit(TfLiteContext* context, const char* buffer,
@@ -41,6 +43,10 @@ TfLiteStatus DequantizeEval(TfLiteContext* context, TfLiteNode* node) {
   const TfLiteEvalTensor* input = tflite::micro::GetEvalInput(context, node, 0);
   TfLiteEvalTensor* output = tflite::micro::GetEvalOutput(context, node, 0);
 
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
   if (output->type == kTfLiteFloat32) {
     switch (input->type) {
       case kTfLiteInt8:
@@ -70,6 +76,11 @@ TfLiteStatus DequantizeEval(TfLiteContext* context, TfLiteNode* node) {
     return kTfLiteError;
   }
 
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM DEQUANTIZE] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
   return kTfLiteOk;
 }
 

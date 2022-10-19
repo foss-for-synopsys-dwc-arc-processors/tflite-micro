@@ -295,6 +295,11 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
 
   void* input_buffer_ptr = NULL;
 
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = 0;
+#endif
+
   while (!w_slice.Done()) {
 #if defined(MLI_2_0) && !defined(MLI_2_0_KRNL_TEST)
     w_ptr->el_params.sa.scale.mem.pi16 = NULL;
@@ -309,9 +314,33 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
     }
 
 #ifndef MLI_2_0_KRNL_TEST
-    mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+      cycles_cnt_0 = _timer_default_read();
 #endif
-    mli_mov_tensor_sync(b_slice.Sub(), &copy_config, b_ptr);
+      mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+      printf("[MOVE] bytes = %d cycles = %d\n",
+        w_ptr->shape[0] * w_ptr->shape[1],
+        _timer_default_read() - cycles_cnt_0
+      );
+#endif
+
+#endif
+
+#ifdef MY_DEBUG_PROFILE
+      cycles_cnt_0 = _timer_default_read();
+#endif
+      mli_mov_tensor_sync(b_slice.Sub(), &copy_config, b_ptr);
+
+
+#ifdef MY_DEBUG_PROFILE
+        printf("[MOVE] bytes = %d cycles = %d\n",
+        b_ptr->shape[0] * sizeof(int32_t),
+        _timer_default_read() - cycles_cnt_0
+      );
+#endif
 
     // Slice the input over the batches (one at a time with the size of a
     // complete input)
@@ -353,22 +382,81 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
       // if same input copy as previous iteration, skip the copy of input
 #ifdef MLI_2_0
       if (in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) {
+
+#ifdef MY_DEBUG_PROFILE
+        cycles_cnt_0 = _timer_default_read();
+#endif
         mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+        printf("[MOVE] bytes = %d cycles = %d\n",
+          in_ptr->shape[0],
+          _timer_default_read() - cycles_cnt_0
+        );
+#endif
+
         input_buffer_ptr = in_slice.Sub()->data.mem.pi8;
       }
       mli_fully_connected_cfg cfg;
       cfg.relu.type = MLI_RELU_NONE;
+
+#ifdef MY_DEBUG_PROFILE
+      cycles_cnt_0 = _timer_default_read();
+#endif
       mli_krn_fully_connected_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg, out_ptr);
-#else
-      if (in_slice.Sub()->data != input_buffer_ptr) {
-        mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
-        input_buffer_ptr = in_slice.Sub()->data;
-      }
-      mli_krn_fully_connected_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, out_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+      printf("[FC] I = [%d] K = [%d %d] O = [%d] cycles = %d\n",
+            in_ptr->shape[0],
+            w_ptr->shape[0], w_ptr->shape[1],
+            out_ptr->shape[0], _timer_default_read() - cycles_cnt_0
+          );
 #endif
 
+#else
+      if (in_slice.Sub()->data != input_buffer_ptr) {
+
+#ifdef MY_DEBUG_PROFILE
+        cycles_cnt_0 = _timer_default_read();
+#endif
+        mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+        printf("[MOVE] bytes = %d cycles = %d\n",
+          in_ptr->shape[0],
+          _timer_default_read() - cycles_cnt_0
+        );
+#endif
+
+        input_buffer_ptr = in_slice.Sub()->data;
+      }
+
+#ifdef MY_DEBUG_PROFILE
+      cycles_cnt_0 = _timer_default_read();
+#endif
+      mli_krn_fully_connected_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, out_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+      printf("[FC] I = [%d] K = [%d %d] O = [%d] cycles = %d\n",
+            in_ptr->shape[0]
+            w_ptr->shape[0], w_ptr->shape[1],
+            out_ptr->shape[0],
+             _timer_default_read() - cycles_cnt_0
+          );
+#endif
+#endif
+
+#ifdef MY_DEBUG_PROFILE
+      cycles_cnt_0 = _timer_default_read();
+#endif
       mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
 
+#ifdef MY_DEBUG_PROFILE
+      printf("[MOVE] bytes = %d cycles = %d\n",
+        out_ptr->shape[0],
+        _timer_default_read() - cycles_cnt_0
+      );
+#endif
       in_slice.Next();
       out_slice.Next();
     }
@@ -376,6 +464,10 @@ TfLiteStatus EvalMliQuantizedInt8(TfLiteContext* context, TfLiteNode* node,
     b_slice.Next();
     out_ch_slice.Next();
   }
+#ifdef MY_DEBUG_PROFILE
+  printf("--------------------------------------\n");
+#endif
+
   return kTfLiteOk;
 }
 

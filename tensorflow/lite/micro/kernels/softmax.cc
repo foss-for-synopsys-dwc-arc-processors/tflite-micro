@@ -25,6 +25,9 @@ limitations under the License.
 #include "tensorflow/lite/kernels/op_macros.h"
 #include "tensorflow/lite/micro/kernels/kernel_util.h"
 
+
+#include <arc/arc_timer.h>
+
 namespace tflite {
 namespace {
 
@@ -60,6 +63,10 @@ TfLiteStatus SoftmaxEval(TfLiteContext* context, TfLiteNode* node) {
   TFLITE_DCHECK(node->user_data != nullptr);
   SoftmaxParams op_data = *static_cast<SoftmaxParams*>(node->user_data);
 
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
   switch (input->type) {
     case kTfLiteFloat32: {
       tflite::reference_ops::Softmax(
@@ -67,11 +74,21 @@ TfLiteStatus SoftmaxEval(TfLiteContext* context, TfLiteNode* node) {
           tflite::micro::GetTensorData<float>(input),
           tflite::micro::GetTensorShape(output),
           tflite::micro::GetTensorData<float>(output));
+#ifdef MY_DEBUG_PROFILE
+      unsigned cycles_cnt_1 = _timer_default_read();
+      printf("[TFLM SOFTMAX] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+      printf("--------------------------------------\n");
+ #endif
       return kTfLiteOk;
     }
     case kTfLiteInt8:
     case kTfLiteInt16: {
       SoftmaxQuantized(input, output, op_data);
+ #ifdef MY_DEBUG_PROFILE     
+      unsigned cycles_cnt_1 = _timer_default_read();
+      printf("[TFLM SOFTMAX] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+      printf("--------------------------------------\n");
+#endif
       return kTfLiteOk;
     }
     default:
@@ -79,6 +96,8 @@ TfLiteStatus SoftmaxEval(TfLiteContext* context, TfLiteNode* node) {
                          TfLiteTypeGetName(input->type), input->type);
       return kTfLiteError;
   }
+
+
 }
 }  // namespace
 

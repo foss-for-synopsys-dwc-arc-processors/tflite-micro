@@ -239,6 +239,7 @@ inline bool Mean(const T* input_data, const int* input_dims,
                    &num_resolved_axis)) {
     return false;
   }
+  
 
   if (!ReduceSumImpl<T, U>(input_data, input_dims, output_dims, input_num_dims,
                            output_num_dims, resolved_axis, num_resolved_axis,

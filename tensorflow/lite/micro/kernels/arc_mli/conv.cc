@@ -354,6 +354,56 @@ TfLiteStatus Prepare(TfLiteContext* context, TfLiteNode* node) {
   return kTfLiteOk;
 }
 
+#ifdef FX_16_HACK
+
+static void init_intermediate_tensor_fx16(mli_tensor * tensor, void * buf, int8_t fb){
+	tensor->data.mem.pi8 = (int8_t *) buf;
+    tensor->el_type = MLI_EL_FX_16;
+    tensor->el_params.fx.frac_bits = fb;
+}
+static void set_default_mem_strides_3d(mli_tensor *t){
+	t->mem_stride[2] = 1;
+	t->mem_stride[1] = t->mem_stride[2] * t->shape[2];
+	t->mem_stride[0] = t->mem_stride[1] * t->shape[1];
+}
+
+
+static void set_size_3d(mli_tensor * tensor, uint32_t dim0, uint32_t dim1, uint32_t dim2, uint32_t el_size){
+	tensor->data.capacity = dim0 * dim1 * dim2 * el_size;
+	tensor->rank = 3;
+	tensor->shape[0] = dim0;
+	tensor->shape[1] = dim1;
+	tensor->shape[2] = dim2;
+}
+
+static void set_default_mem_strides_1d(mli_tensor *t){
+	t->mem_stride[0] = 1;
+}
+
+static void set_size_1d(mli_tensor * tensor, uint32_t dim0, uint32_t el_size){
+	tensor->data.capacity = dim0 * el_size;
+	tensor->rank = 1;
+	tensor->shape[0] = dim0;
+}
+
+static void set_size_4d(mli_tensor * tensor, uint32_t dim0, uint32_t dim1, uint32_t dim2, uint32_t dim3, uint32_t el_size){
+	tensor->data.capacity = dim0 * dim1 * dim2 * dim3 * el_size;
+	tensor->rank = 4;
+	tensor->shape[0] = dim0;
+	tensor->shape[1] = dim1;
+	tensor->shape[2] = dim2;
+    tensor->shape[3] = dim3;
+}
+
+static void set_default_mem_strides_4d(mli_tensor *t){
+	t->mem_stride[3] = 1;
+	t->mem_stride[2] = t->shape[3] * t->mem_stride[3];
+	t->mem_stride[1] = t->shape[2] * t->mem_stride[2];
+	t->mem_stride[0] = t->shape[1] * t->mem_stride[1];
+}
+
+#endif
+
 TfLiteStatus EvalMliQuantizedPerChannel(
     TfLiteContext* context, TfLiteNode* node, TfLiteConvParams* params,
     const OpData& data, const TfLiteEvalTensor* input,
@@ -364,6 +414,10 @@ TfLiteStatus EvalMliQuantizedPerChannel(
   if (data.is_mli_applicable) {
     // Copy configuration data from external to local memory
     mli_conv2d_cfg cfg_local = *data.cfg;
+
+#ifdef MY_DEBUG_PROFILE
+    printf("[DEBUG INFO] EvalMliQuantizedPerChannel\n");
+#endif
 
     ops::micro::MliTensorAttachBuffer<int8_t>(input, &data.mli_in);
     ops::micro::MliTensorAttachBuffer<int8_t>(filter, &data.mli_weights);
@@ -406,16 +460,38 @@ TfLiteStatus EvalMliQuantizedPerChannel(
     ops::micro::MliTensorInterface in_local_interface(&in_local);
     ops::micro::MliTensorInterface out_local_interface(&out_local);
 
+#ifdef MY_DEBUG_PROFILE
+    printf("[DEBUG INFO] Full shapes: I = [%d %d %d] K = [%d %d %d %d] O = [%d %d %d]\n",
+      in_local.shape[1], in_local.shape[2], in_local.shape[3],
+      weights_local.shape[0], weights_local.shape[1],  weights_local.shape[2], weights_local.shape[3],
+      out_local.shape[1], out_local.shape[2], out_local.shape[3]
+    );
+#endif
+
     mli_mov_cfg_t copy_config;
     mli_mov_cfg_for_copy(&copy_config);
+
+#ifdef MY_DEBUG_PROFILE
+    printf("[DEBUG INFO] before get_arc_scratch_buffer_for_conv_tensors\n");
+#endif
 
     TF_LITE_ENSURE_STATUS(ops::micro::get_arc_scratch_buffer_for_conv_tensors(
         context, &in_local_interface, &weights_local_interface,
         &bias_local_interface, &out_local_interface));
+  
+#ifdef MY_DEBUG_PROFILE
+    printf("[DEBUG INFO] before arc_scratch_buffer_calc_slice_size_io\n");
+#endif
+
     TF_LITE_ENSURE_STATUS(ops::micro::arc_scratch_buffer_calc_slice_size_io(
         &in_local_interface, &out_local_interface, kernel_height,
         cfg_local.stride_height, cfg_local.padding_top,
         cfg_local.padding_bottom, &in_slice_height, &out_slice_height));
+
+#ifdef MY_DEBUG_PROFILE
+    printf("[DEBUG INFO] before arc_scratch_buffer_calc_slice_size_weights\n");
+#endif
+
     TF_LITE_ENSURE_STATUS(
         ops::micro::arc_scratch_buffer_calc_slice_size_weights(
             &weights_local_interface, &bias_local_interface,
@@ -459,6 +535,11 @@ TfLiteStatus EvalMliQuantizedPerChannel(
     void* input_buffer_ptr = NULL;
     uint32_t input_buffer_size = 0;
 
+#ifdef MY_DEBUG_PROFILE
+    _timer_default_reset();
+    unsigned cycles_cnt_0 = 0;
+#endif
+
     while (!w_slice.Done()) {
       if (!w_is_local) {
         ops::micro::PrepareLocalTensor(w_slice.Sub(), &weights_local);
@@ -468,9 +549,34 @@ TfLiteStatus EvalMliQuantizedPerChannel(
       }
 
 #ifndef MLI_2_0_KRNL_TEST
-      mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+      cycles_cnt_0 = _timer_default_read();
 #endif
+
+      mli_mov_tensor_sync(w_slice.Sub(), &copy_config, w_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+      printf("[MOVE] bytes = %d cycles = %d\n",
+        w_ptr->shape[0] * w_ptr->shape[1] * w_ptr->shape[2] * w_ptr->shape[3],
+        _timer_default_read() - cycles_cnt_0
+      );
+#endif
+
+#endif
+      
+#ifdef MY_DEBUG_PROFILE
+      cycles_cnt_0 = _timer_default_read();
+#endif
+
       mli_mov_tensor_sync(b_slice.Sub(), &copy_config, b_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+      printf("[MOVE] bytes = %d cycles = %d\n",
+        b_ptr->shape[0] * sizeof(int32_t),
+        _timer_default_read() - cycles_cnt_0
+      );
+#endif
 
       /* mli_in tensor contains batches of HWC tensors. so it is a 4 dimensional
       tensor. because the mli kernel will process one HWC tensor at a time, the
@@ -523,25 +629,141 @@ TfLiteStatus EvalMliQuantizedPerChannel(
 #ifdef MLI_2_0
         if ((in_slice.Sub()->data.mem.pi8 != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
+
+#ifdef MY_DEBUG_PROFILE
+          cycles_cnt_0 = _timer_default_read();
+#endif
+
           mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+          printf("[MOVE] bytes = %d cycles = %d\n",
+            in_ptr->shape[0] * in_ptr->shape[1] * in_ptr->shape[2],
+            _timer_default_read() - cycles_cnt_0
+          );
+#endif
+
           input_buffer_ptr = in_slice.Sub()->data.mem.pi8;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
 
-        data.p_mli_krn_conv2d_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
-                                           out_ptr);
+        
+
+        #ifdef FX_16_HACK  
+          unsigned hi, wi, ci, ho, wo, co, ky, kx;
+          ky = w_ptr->shape[0];
+          kx = w_ptr->shape[1];
+          hi = in_ptr->shape[0];
+          wi = in_ptr->shape[1];
+          ci = in_ptr->shape[2];
+          ho = out_ptr->shape[0];
+          wo = out_ptr->shape[1];
+          co = out_ptr->shape[2];
+          
+          mli_tensor input_fx16;
+          init_intermediate_tensor_fx16(&input_fx16, (void*)in_ptr->data.mem.pi8, 12);
+          set_size_3d(&input_fx16, hi, wi, ci, sizeof(int16_t));
+          set_default_mem_strides_3d(&input_fx16);
+
+          mli_tensor out_fx16;
+          init_intermediate_tensor_fx16(&out_fx16, (void*)out_ptr->data.mem.pi8, 12);
+          set_size_3d(&out_fx16, ho, wo, co, sizeof(int16_t));
+          set_default_mem_strides_3d(&out_fx16);
+
+          mli_tensor weights_tensor_fx16;
+          init_intermediate_tensor_fx16(&weights_tensor_fx16, (void*)w_ptr->data.mem.pi8, 12);
+          set_size_4d(&weights_tensor_fx16, ky, kx, ci, co, sizeof(int16_t));
+          set_default_mem_strides_4d(&weights_tensor_fx16);
+          
+          mli_tensor bias_tensor_fx16;
+          init_intermediate_tensor_fx16(&bias_tensor_fx16,  (void*)b_ptr->data.mem.pi8, 12);
+          set_size_1d(&bias_tensor_fx16, co, sizeof(int16_t));
+          set_default_mem_strides_1d(&bias_tensor_fx16);
+
+#ifdef MY_DEBUG_PROFILE
+          cycles_cnt_0 = _timer_default_read();
+#endif
+
+          mli_krn_conv2d_hwcn_fx16(&input_fx16, &weights_tensor_fx16, &bias_tensor_fx16, &cfg_local, &out_fx16);
+
+
+#ifdef MY_DEBUG_PROFILE
+          printf("[CONV fx16] I = [%d %d %d] K = [%d %d %d %d] O = [%d %d %d] cycles = %d\n",
+            input_fx16.shape[0], input_fx16.shape[1], input_fx16.shape[2],
+            weights_tensor_fx16.shape[0], weights_tensor_fx16.shape[1], weights_tensor_fx16.shape[2], weights_tensor_fx16.shape[3],
+            out_fx16.shape[0], out_fx16.shape[1], out_fx16.shape[2], _timer_default_read() - cycles_cnt_0
+          );
+#endif
+
+        #else
+
+#ifdef MY_DEBUG_PROFILE
+          cycles_cnt_0 = _timer_default_read();
+#endif
+
+          data.p_mli_krn_conv2d_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
+                                            out_ptr);
+#ifdef MY_DEBUG_PROFILE
+            printf("[CONV sa8] I = [%d %d %d] K = [%d %d %d %d] O = [%d %d %d] cycles = %d\n",
+            in_ptr->shape[0], in_ptr->shape[1], in_ptr->shape[2],
+            w_ptr->shape[0], w_ptr->shape[1], w_ptr->shape[2], w_ptr->shape[3],
+            out_ptr->shape[0], out_ptr->shape[1], out_ptr->shape[2], _timer_default_read() - cycles_cnt_0
+          );
+#endif
+
+        #endif
+
 #else
         if ((in_slice.Sub()->data != input_buffer_ptr) ||
             (mli_hlp_count_elem_num(in_slice.Sub(), 0) != input_buffer_size)) {
+
+#ifdef MY_DEBUG_PROFILE
+          cycles_cnt_0 = _timer_default_read();
+#endif
+
           mli_mov_tensor_sync(in_slice.Sub(), &copy_config, in_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+          printf("[MOVE] bytes = %d cycles = %d\n",
+            in_ptr->shape[0] * in_ptr->shape[1] * in_ptr->shape[2],
+            _timer_default_read() - cycles_cnt_0
+          );
+#endif
+
           input_buffer_ptr = in_slice.Sub()->data;
           input_buffer_size = mli_hlp_count_elem_num(in_slice.Sub(), 0);
         }
+
+#ifdef MY_DEBUG_PROFILE
+        cycles_cnt_0 = _timer_default_read();
+#endif
+
         data.p_mli_krn_conv2d_sa8_sa8_sa32(in_ptr, w_ptr, b_ptr, &cfg_local,
                                            out_ptr);
+
+#ifdef MY_DEBUG_PROFILE
+        printf("[CONV] I = [%d %d %d] K = [%d %d %d %d] O = [%d %d %d] cycles = %d\n",
+          in_ptr->shape[0], in_ptr->shape[1], in_ptr->shape[2],
+          w_ptr->shape[0], w_ptr->shape[1], w_ptr->shape[2], w_ptr->shape[3],
+          out_ptr->shape[0], out_ptr->shape[1], out_ptr->shape[2], _timer_default_read() - cycles_cnt_0
+        );
 #endif
+
+
+#endif
+
+#ifdef MY_DEBUG_PROFILE
+        cycles_cnt_0 = _timer_default_read();
+#endif
+
         mli_mov_tensor_sync(out_ptr, &copy_config, out_slice.Sub());
 
+#ifdef MY_DEBUG_PROFILE
+        printf("[MOVE] bytes = %d cycles = %d\n",
+          out_ptr->shape[0] * out_ptr->shape[1] * out_ptr->shape[2],
+          _timer_default_read() - cycles_cnt_0
+        );
+#endif
         in_slice.Next();
         out_slice.Next();
       }
@@ -550,6 +772,10 @@ TfLiteStatus EvalMliQuantizedPerChannel(
       out_ch_slice.Next();
     }
   }
+
+#ifdef MY_DEBUG_PROFILE
+  printf("--------------------------------------\n");
+#endif
   return kTfLiteOk;
 }
 
@@ -573,6 +799,11 @@ void EvalQuantizedPerChannel(TfLiteContext* context, TfLiteNode* node,
   op_params.quantized_activation_min = data.output_activation_min;
   op_params.quantized_activation_max = data.output_activation_max;
 
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
+
   reference_integer_ops::ConvPerChannel(
       op_params, data.per_channel_output_multiplier,
       data.per_channel_output_shift, tflite::micro::GetTensorShape(input),
@@ -583,6 +814,13 @@ void EvalQuantizedPerChannel(TfLiteContext* context, TfLiteNode* node,
       tflite::micro::GetTensorData<int32_t>(bias),
       tflite::micro::GetTensorShape(output),
       tflite::micro::GetTensorData<int8_t>(output));
+
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM CONV] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
+
 #else
   TF_LITE_KERNEL_LOG(context,
                      "Node configuration is not supported by ARC MLI Library.");
@@ -608,6 +846,11 @@ void EvalQuantizedPerChannelInt16(TfLiteContext* context, TfLiteNode* node,
   op_params.quantized_activation_min = data.output_activation_min;
   op_params.quantized_activation_max = data.output_activation_max;
 
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
+
   reference_integer_ops::ConvPerChannel(
       op_params, data.per_channel_output_multiplier,
       data.per_channel_output_shift, tflite::micro::GetTensorShape(input),
@@ -618,6 +861,13 @@ void EvalQuantizedPerChannelInt16(TfLiteContext* context, TfLiteNode* node,
       tflite::micro::GetTensorData<std::int64_t>(bias),
       tflite::micro::GetTensorShape(output),
       tflite::micro::GetTensorData<int16_t>(output));
+
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM CONV] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
+
 #else
   TF_LITE_KERNEL_LOG(context,
                      "Node configuration is not supported by ARC MLI Library.");

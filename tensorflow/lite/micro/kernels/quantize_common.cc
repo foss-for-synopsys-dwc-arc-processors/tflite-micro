@@ -26,6 +26,8 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_utils.h"
 
+#include <arc/arc_timer.h>
+
 namespace tflite {
 
 TfLiteStatus PrepareQuantizeReference(TfLiteContext* context,
@@ -91,6 +93,12 @@ TfLiteStatus EvalQuantizeReference(TfLiteContext* context, TfLiteNode* node) {
 
   const TfLiteEvalTensor* input = tflite::micro::GetEvalInput(context, node, 0);
   TfLiteEvalTensor* output = tflite::micro::GetEvalOutput(context, node, 0);
+
+  
+  #ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
 
   if (input->type == kTfLiteFloat32) {
     switch (output->type) {
@@ -205,7 +213,11 @@ TfLiteStatus EvalQuantizeReference(TfLiteContext* context, TfLiteNode* node) {
                        TfLiteTypeGetName(output->type));
     return kTfLiteError;
   }
-
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM QUANTIZE] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
   return kTfLiteOk;
 }
 

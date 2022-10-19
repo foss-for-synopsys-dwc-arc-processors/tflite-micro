@@ -17,6 +17,7 @@ limitations under the License.
 
 #include <algorithm>
 #include <limits>
+#include <string>
 
 #include "mli_api.h"  // NOLINT
 #include "tensorflow/lite/c/builtin_op_data.h"
@@ -39,6 +40,29 @@ namespace tflite {
 constexpr int kInputTensor1 = 0;
 constexpr int kInputTensor2 = 1;
 constexpr int kOutputTensor = 0;
+
+#ifdef FX_16_HACK
+
+static void init_intermediate_tensor_fx16(mli_tensor * tensor, void * buf, int8_t fb){
+	tensor->data.mem.pi8 = (int8_t *) buf;
+    tensor->el_type = MLI_EL_FX_16;
+    tensor->el_params.fx.frac_bits = fb;
+}
+static void set_default_mem_strides_3d(mli_tensor *t){
+	t->mem_stride[2] = 1;
+	t->mem_stride[1] = t->mem_stride[2] * t->shape[2];
+	t->mem_stride[0] = t->mem_stride[1] * t->shape[1];
+}
+
+static void set_size_3d(mli_tensor * tensor, uint32_t dim0, uint32_t dim1, uint32_t dim2, uint32_t el_size){
+	tensor->data.capacity = dim0 * dim1 * dim2 * el_size;
+	tensor->rank = 3;
+	tensor->shape[0] = dim0;
+	tensor->shape[1] = dim1;
+	tensor->shape[2] = dim2;
+}
+
+#endif
 
 struct OpData {
   bool requires_broadcast;
@@ -175,6 +199,12 @@ TfLiteStatus EvalAdd(TfLiteContext* context, TfLiteNode* node,
   tflite::ArithmeticParams op_params;
   SetActivationParams(data->output_activation_min_f32,
                       data->output_activation_max_f32, &op_params);
+  
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
+
   if (data->requires_broadcast) {
     reference_ops::BroadcastAdd4DSlow(
         op_params, tflite::micro::GetTensorShape(input1),
@@ -191,6 +221,13 @@ TfLiteStatus EvalAdd(TfLiteContext* context, TfLiteNode* node,
                        tflite::micro::GetTensorShape(output),
                        tflite::micro::GetTensorData<float>(output));
   }
+
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM ADD] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
+
   return kTfLiteOk;
 #else
   TF_LITE_KERNEL_LOG(context,
@@ -221,6 +258,11 @@ TfLiteStatus EvalAddQuantized(TfLiteContext* context, TfLiteNode* node,
   bool need_broadcast = reference_ops::ProcessBroadcastShapes(
       tflite::micro::GetTensorShape(input1),
       tflite::micro::GetTensorShape(input2), &op_params);
+
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
 
   switch (output->type) {
     case kTfLiteInt8: {
@@ -269,7 +311,13 @@ TfLiteStatus EvalAddQuantized(TfLiteContext* context, TfLiteNode* node,
       return kTfLiteError;
   }
 
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM ADD] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
   return kTfLiteOk;
+
 #else
   TF_LITE_KERNEL_LOG(context,
                      "Node configuration is not supported by ARC MLI Library.");
@@ -338,6 +386,12 @@ TfLiteStatus EvalMLIAddInt8(TfLiteContext* context, TfLiteNode* node,
       input2_is_local ? input2_slice.Sub() : input2_local.MliTensor();
   mli_tensor* out_tsr = out_is_local ? out_slice.Sub() : out_local.MliTensor();
 
+#ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = 0, cycles_cnt_1 = 0, cycles_cnt_2 = 0;
+  unsigned cycles_cnt_3 = 0, cycles_cnt_4 = 0;
+#endif
+
   while (!out_slice.Done()) {
     if (!out_is_local) {
       ops::micro::PrepareLocalTensor(out_slice.Sub(), &out_local_tsr);
@@ -348,16 +402,95 @@ TfLiteStatus EvalMLIAddInt8(TfLiteContext* context, TfLiteNode* node,
     if (!input2_is_local) {
       ops::micro::PrepareLocalTensor(input2_slice.Sub(), &input2_local_tsr);
     }
+
+#ifdef MY_DEBUG_PROFILE
+    cycles_cnt_0 = _timer_default_read();
+#endif
+
     mli_mov_tensor_sync(input1_slice.Sub(), &copy_config, input1_tsr);
+
+#ifdef MY_DEBUG_PROFILE
+    cycles_cnt_1 = _timer_default_read();
+#endif
+
     mli_mov_tensor_sync(input2_slice.Sub(), &copy_config, input2_tsr);
 
+#ifdef MY_DEBUG_PROFILE
+    cycles_cnt_2 = _timer_default_read();
+#endif
+
+    std::string hdr;
+ #ifdef FX_16_HACK  
+          unsigned hi, wi, ci, ho, wo, co;
+          hi = input1_tsr->shape[0];
+          wi = input1_tsr->shape[1];
+          ci = input1_tsr->shape[2];
+          ho = out_tsr->shape[0];
+          wo = out_tsr->shape[1];
+          co = out_tsr->shape[2];
+          assert(ci == co && hi == ho && wi == wo);
+          
+          mli_tensor input_fx16;
+          init_intermediate_tensor_fx16(&input_fx16, (void*)input1_tsr->data.mem.pi8, 12);
+          set_size_3d(&input_fx16, hi, wi, ci, sizeof(int16_t));
+          set_default_mem_strides_3d(&input_fx16);
+
+          mli_tensor input2_fx16;
+          init_intermediate_tensor_fx16(&input2_fx16, (void*)input2_tsr->data.mem.pi8, 12);
+          set_size_3d(&input2_fx16, hi, wi, ci, sizeof(int16_t));
+          set_default_mem_strides_3d(&input2_fx16);
+
+          mli_tensor out_fx16;
+          init_intermediate_tensor_fx16(&out_fx16, (void*)out_tsr->data.mem.pi8, 12);
+          set_size_3d(&out_fx16, ho, wo, co, sizeof(int16_t));
+          set_default_mem_strides_3d(&out_fx16);
+
+          hdr = "fx16";
+          mli_krn_eltwise_add_fx16(&input_fx16, &input2_fx16, &out_fx16);
+
+#else
+    hdr = "sa8";
     mli_krn_eltwise_add_sa8(input1_tsr, input2_tsr, out_tsr);
 
+#endif
+
+#ifdef MY_DEBUG_PROFILE
+    cycles_cnt_3 = _timer_default_read();
+#endif
+
     mli_mov_tensor_sync(out_tsr, &copy_config, out_slice.Sub());
+
+#ifdef MY_DEBUG_PROFILE
+    cycles_cnt_4 = _timer_default_read();
+
+    printf("[MOVE] bytes = %d cycles = %d\n",
+          input1_tsr->shape[0] * input1_tsr->shape[1] * input1_tsr->shape[2],
+          cycles_cnt_1 - cycles_cnt_0
+        );
+
+    printf("[MOVE] bytes = %d cycles = %d\n",
+          input2_tsr->shape[0] * input2_tsr->shape[1] * input2_tsr->shape[2],
+          cycles_cnt_2 - cycles_cnt_1
+        );
+
+    printf("[ADD %s] I/O = [%d %d %d] cycles = %d\n", hdr.c_str(),
+          input1_tsr->shape[0], input1_tsr->shape[1], input1_tsr->shape[2],
+          cycles_cnt_3 - cycles_cnt_2
+        );
+
+    printf("[MOVE] bytes = %d cycles = %d\n",
+          input1_tsr->shape[0] * input1_tsr->shape[1] * input1_tsr->shape[2],
+          cycles_cnt_4 - cycles_cnt_3
+        );
+#endif
+
     input1_slice.Next();
     input2_slice.Next();
     out_slice.Next();
   }
+#ifdef MY_DEBUG_PROFILE
+  printf("--------------------------------------\n");
+#endif
   return kTfLiteOk;
 #else
   return kTfLiteError;

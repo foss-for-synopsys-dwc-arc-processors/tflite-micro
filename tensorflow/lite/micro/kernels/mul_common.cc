@@ -24,6 +24,8 @@ limitations under the License.
 #include "tensorflow/lite/micro/kernels/mul.h"
 #include "tensorflow/lite/micro/memory_helpers.h"
 
+#include <arc/arc_timer.h>
+
 namespace tflite {
 
 const int kMulInput1Tensor = 0;
@@ -112,6 +114,12 @@ void EvalMulQuantizedReference(TfLiteContext* context, TfLiteNode* node,
       tflite::micro::GetTensorShape(input1),
       tflite::micro::GetTensorShape(input2), &op_params);
 
+  
+  #ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
+
   if (input1->type == kTfLiteInt8) {
     if (need_broadcast) {
       reference_integer_ops::BroadcastMul4DSlow(
@@ -148,6 +156,11 @@ void EvalMulQuantizedReference(TfLiteContext* context, TfLiteNode* node,
                          tflite::micro::GetTensorData<int32_t>(output));
     }
   }
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM MUL] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
 }
 
 void EvalMulFloatReference(TfLiteContext* context, TfLiteNode* node,

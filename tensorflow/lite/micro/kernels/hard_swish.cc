@@ -28,6 +28,9 @@ limitations under the License.
 #include "tensorflow/lite/micro/micro_error_reporter.h"
 #include "tensorflow/lite/micro/micro_utils.h"
 
+#include <arc/arc_timer.h>
+
+
 namespace tflite {
 namespace {
 void* HardSwishInit(TfLiteContext* context, const char* buffer, size_t length) {
@@ -41,7 +44,11 @@ TfLiteStatus HardSwishEval(TfLiteContext* context, TfLiteNode* node) {
   TfLiteEvalTensor* output =
       tflite::micro::GetEvalOutput(context, node, kHardSwishOutputTensor);
   HardSwishParams* params = static_cast<HardSwishParams*>(node->user_data);
-
+  
+  #ifdef MY_DEBUG_PROFILE
+  _timer_default_reset();
+  unsigned cycles_cnt_0 = _timer_default_read();
+#endif
   switch (input->type) {
     case kTfLiteFloat32: {
       tflite::reference_ops::HardSwish<float>(
@@ -62,6 +69,12 @@ TfLiteStatus HardSwishEval(TfLiteContext* context, TfLiteNode* node) {
       return kTfLiteError;
     }
   }
+
+#ifdef MY_DEBUG_PROFILE
+  unsigned cycles_cnt_1 = _timer_default_read();
+  printf("[TFLM HARD_SWISH] cycles = %d\n", cycles_cnt_1 - cycles_cnt_0);
+  printf("--------------------------------------\n");
+#endif
   return kTfLiteOk;
 }
 
