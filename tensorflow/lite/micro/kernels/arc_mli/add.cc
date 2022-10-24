@@ -428,8 +428,11 @@ TfLiteStatus EvalMLIAddInt8(TfLiteContext* context, TfLiteNode* node,
           ho = out_tsr->shape[0];
           wo = out_tsr->shape[1];
           co = out_tsr->shape[2];
-          assert(ci == co && hi == ho && wi == wo);
-          
+#ifdef MY_DEBUG_PROFILE
+          printf("[%d %d %d] -> [%d %d %d]\n)", hi, wi, ci, ho, wo, co);
+          // assert(ci == co && hi == ho && wi == wo);
+#endif
+
           mli_tensor input_fx16;
           init_intermediate_tensor_fx16(&input_fx16, (void*)input1_tsr->data.mem.pi8, 12);
           set_size_3d(&input_fx16, hi, wi, ci, sizeof(int16_t));
