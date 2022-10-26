@@ -369,8 +369,8 @@ TfLiteStatus arc_scratch_buffer_calc_slice_size_io(
           stride_height;
     } else {
       max_out_lines_for_input =
-           (max_lines_in - kernel_height + 1 ) / stride_height;
-         //  CEIL_DIV(max_lines_in - kernel_height + 1, stride_height);
+           // (max_lines_in - kernel_height + 1 ) / stride_height;
+           CEIL_DIV(max_lines_in - kernel_height + 1, stride_height);
     }
     // Then compute how many output lines fit into the output tensor.
     max_lines_out = std::min(
