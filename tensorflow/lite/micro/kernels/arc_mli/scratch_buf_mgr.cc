@@ -31,19 +31,11 @@ namespace micro {
 #if (defined(__Xxy)) || (defined(__Xvdsp))
 static void get_arc_two_buffer_sizes(int request_size_1, int request_size_2,
                                      int* grant_size_1, int* grant_size_2) {
-  int maxrequest = 0;
-  int secondrequest = 0;
+
   int maxavailable = 0;
   int secondavail = 0;
 
-  // determine the largest requested buffer.
-  if (request_size_1 > request_size_2) {
-    maxrequest = request_size_1;
-    secondrequest = request_size_2;
-  } else {
-    maxrequest = request_size_2;
-    secondrequest = request_size_1;
-  }
+
 
   // find the two largest available buffers.
   get_arc_scratch_buffer_two_max_sizes(&maxavailable, &secondavail);
